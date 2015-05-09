@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset=utf-8 />
+<title>Draw river</title>
+<script src='https://api.tiles.mapbox.com/mapbox.js/v2.1.9/mapbox.js'></script>
+<link href='https://api.tiles.mapbox.com/mapbox.js/v2.1.9/mapbox.css' rel='stylesheet' />
+<style>
+  body { margin:0; padding:0; }
+  #map { position:absolute; top:0; bottom:0; width:100%; }
+</style>
+</head>
+<body>
+
+
+<div id='map'></div>
+<script>
+L.mapbox.accessToken = 'pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw';
+var map = L.mapbox.map('map', 'examples.map-2k9d7u0c').setView([20, -80], 4);
+var dir_x;
+var dir_y;
+var dir_z;
+var x0;
+var y0;
+var x;
+var y;
+var x_deg;
+var y_deg;
+var polyline;
+var tile_width = 1280 - 1;
+var pix_deg = 0.0083333333333;
+
+getImage = function(url, callback) {
+    var img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = function() {
+        callback(this);
+    };
+    img.src = url;
+};
+
+processImage = function(img) {
+    x0 = 0;
+    y0 = 0;
+    x = (tile_width - 1) / 2;
+    y = (tile_width - 1) / 2;
+    canvas = document.createElement('canvas');
+    canvas.width = tile_width;
+    canvas.height = tile_width;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    imgData = ctx.getImageData(0, 0, tile_width, tile_width);
+    data = imgData.data;
+    row = -1;
+    dir_x = [];
+    dir_y = [];
+    dir_z = [];
+    for(i = 0, n = data.length; i < n; i += 4) {
+        pixel = i / 4;
+        red = data[i + 0];
+        green = data[i + 1];
+        blue = data[i + 2];
+        if (pixel % canvas.width === 0) {
+            row++;
+            dir_x[row] = [];
+            dir_y[row] = [];
+            dir_z[row] = [];
+        }
+        dir_y[row][pixel - (row * canvas.width)] = red;
+        dir_x[row][pixel - (row * canvas.width)] = green;
+        dir_z[row][pixel - (row * canvas.width)] = blue;
+    }
+    var done = false;
+    while (!done && add()) {
+        if ((x < 10) || (y < 10) || (x >= tile_width - 10) || (y >= tile_width - 10)) {
+            x_deg = x_deg + x0 * pix_deg;
+            y_deg = y_deg - y0 * pix_deg;
+            var url = 'http://api.tiles.mapbox.com/v4/davidbrochart.skbi6m8h/' + x_deg.toString() + ',' + y_deg.toString() + ',9/' + tile_width.toString() + 'x' + tile_width.toString() + '.png?access_token=pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw';
+            getImage(url, processImage);
+            done = true;
+        }
+    }
+};
+
+function add() {
+    polyline.addLatLng(L.latLng(y_deg - y0 * pix_deg, x_deg + x0 * pix_deg));
+    var done = false;
+    this_dir = dir_z[y][x];
+    this_row = dir_y[y][x];
+    this_col = dir_x[y][x];
+    if (this_dir === 1 * 16) {
+        x0 += 1;
+        do {
+            x += 1;
+        } while (dir_x[y][x] === this_col);
+    }
+    else if (this_dir === 2 * 16) {
+        x0 += 1;
+        y0 += 1;
+        do {
+            x += 1;
+        } while (dir_x[y][x] === this_col);
+        do {
+            y += 1;
+        } while (dir_y[y][x] === this_row);
+    }
+    else if (this_dir === 3 * 16) {
+        y0 += 1;
+        do {
+            y += 1;
+        } while (dir_y[y][x] === this_row);
+    }
+    else if (this_dir === 4 * 16) {
+        x0 -= 1;
+        y0 += 1;
+        do {
+            x -= 1;
+        } while (dir_x[y][x] === this_col);
+        do {
+            y += 1;
+        } while (dir_y[y][x] === this_row);
+    }
+    else if (this_dir === 5 * 16) {
+        x0 -= 1;
+        do {
+            x -= 1;
+        } while (dir_x[y][x] === this_col);
+    }
+    else if (this_dir === 6 * 16) {
+        x0 -= 1;
+        y0 -= 1;
+        do {
+            x -= 1;
+        } while (dir_x[y][x] === this_col);
+        do {
+            y -= 1;
+        } while (dir_y[y][x] === this_row);
+    }
+    else if (this_dir === 7 * 16) {
+        y0 -= 1;
+        do {
+            y -= 1;
+        } while (dir_y[y][x] === this_row);
+    }
+    else if (this_dir === 8 * 16) {
+        x0 += 1;
+        y0 -= 1;
+        do {
+            x += 1;
+        } while (dir_x[y][x] === this_col);
+        do {
+            y -= 1;
+        } while (dir_y[y][x] === this_row);
+    }
+    else {
+        done = true;
+    }
+    if (done) {
+        polyline.addLatLng(L.latLng(y_deg - y0 * pix_deg, x_deg + x0 * pix_deg));
+    }
+    return !done;
+}
+
+map.on('click', function(evt) {
+    polyline = L.polyline([]).addTo(map);
+    x_deg = evt.latlng.lng;
+    y_deg = evt.latlng.lat;
+    var url = 'http://api.tiles.mapbox.com/v4/davidbrochart.skbi6m8h/' + x_deg.toString() + ',' + y_deg.toString() + ',9/' + tile_width.toString() + 'x' + tile_width.toString() + '.png?access_token=pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw';
+    getImage(url, processImage);
+});
+
+</script>
+
+</body>
+</html>

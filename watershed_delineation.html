@@ -271,12 +271,16 @@ function add() {
       polygon2.push(turf.merge(turf.featurecollection(polygon1)));
     }
     var watershed = turf.merge(turf.featurecollection(polygon2));
+    //var simplified = turf.simplify(watershed, 0.1, false);
     watershed.properties = {
       "fill": "#6BC65F",
       "stroke": "#6BC65F",
       "stroke-width": 5
     };
     L.mapbox.featureLayer(watershed).addTo(map);
+    var url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry));
+    window.open(url, '_blank');
+    window.focus();
   }
   return !done;
 }
@@ -296,6 +300,7 @@ map.on('click', function(evt) {
   polygon2 = [];
   var url = 'http://api.tiles.mapbox.com/v4/davidbrochart.skbi6m8h/' + x_deg.toString() + ',' + y_deg.toString() + ',9/' + tile_width.toString() + 'x' + tile_width.toString() + '.png?access_token=pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw';
   getImage(url, processImage);
+
 });
 
 </script>

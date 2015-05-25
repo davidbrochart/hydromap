@@ -35,6 +35,10 @@ var neighbors;
 var skip = false;
 var pol_i;
 
+function Download(url) {
+    document.getElementById('my_iframe').src = url;
+};
+
 getImage = function(url, callback) {
   var img = new Image();
   img.crossOrigin = "Anonymous";
@@ -279,8 +283,12 @@ function add() {
     };
     L.mapbox.featureLayer(watershed).addTo(map);
     var url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry));
-    window.open(url, '_blank');
-    window.focus();
+    //window.open(url, '_blank');
+    //window.focus();
+    var link = document.createElement("a");
+    link.download = 'watershed.json';
+    link.href = url;
+    link.click();
   }
   return !done;
 }

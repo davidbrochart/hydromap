@@ -15,30 +15,13 @@ neighbors = 0
 tile_width = 1200
 url = 0
 watershedLayer = 0
-spin_opts = {
-  lines: 13 # The number of lines to draw
-, length: 28 # The length of each line
-, width: 14 # The line thickness
-, radius: 42 # The radius of the inner circle
-, scale: 1 # Scales overall size of the spinner
-, corners: 1 # Corner roundness (0..1)
-, color: '#6BC65F' # #rgb or #rrggbb or array of colors
-, opacity: 0.25 # Opacity of the lines
-, rotate: 0 # The rotation offset
-, direction: 1 # 1: clockwise, -1: counterclockwise
-, speed: 1 # Rounds per second
-, trail: 60 # Afterglow percentage
-, fps: 20 # Frames per second when using setTimeout() as a fallback for CSS
-, zIndex: 2e9 # The z-index (defaults to 2000000000)
-, className: 'spinner' # The CSS class to assign to the spinner
-, top: '50%' # Top position relative to parent
-, left: '50%' # Left position relative to parent
-, shadow: false # Whether to render a shadow
-, hwaccel: false # Whether to use hardware acceleration
-, position: 'absolute' # Element positioning
-}
-spin_target = document.getElementById('spin')
-spinner = new Spinner(spin_opts)
+
+wait = (ms) ->
+    deferred = Q.defer()
+    setTimeout( ->
+        deferred.resolve()
+    , ms)
+    return deferred.promise
 
 getTile = (url) ->
     console.log 'Downloading ' + url
@@ -74,6 +57,15 @@ addPixel = ->
             polygon1.push(polygon2)
             polygon2 = turf.merge(turf.featurecollection(polygon1))
             polygon1 = []
+            polygon2.properties = {
+                "fill": "#6BC65F",
+                "stroke": "#6BC65F",
+                "stroke-width": 5
+            }
+            if watershedLayer != 0
+                map.removeLayer(watershedLayer)
+            watershedLayer = L.mapbox.featureLayer(polygon2).addTo(map)
+            yield wait(100)
     skip = false
     done = false
     nb = neighbors[neighbors.length - 1]
@@ -104,6 +96,15 @@ addPixel = ->
                 polygon1.push(polygon2)
                 polygon2 = turf.merge(turf.featurecollection(polygon1))
                 polygon1 = []
+                polygon2.properties = {
+                    "fill": "#6BC65F",
+                    "stroke": "#6BC65F",
+                    "stroke-width": 5
+                }
+                if watershedLayer != 0
+                    map.removeLayer(watershedLayer)
+                watershedLayer = L.mapbox.featureLayer(polygon2).addTo(map)
+                yield wait(100)
             go_down = true
             while go_down
                 yield Q.async(go_get_dir)(tiles[0][y * tile_width + x], true)
@@ -132,7 +133,8 @@ addPixel = ->
             "stroke": "#6BC65F",
             "stroke-width": 5
         }
-        spinner.stop()
+        if watershedLayer != 0
+            map.removeLayer(watershedLayer)
         watershedLayer = L.mapbox.featureLayer(polygon2).addTo(map)
         outletLayer = L.mapbox.featureLayer(outlet).addTo(map)
         outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(polygon2) / 1e6, 1).toString() + ' km²').addTo(map)
@@ -355,8 +357,7 @@ map_on_click = (evt) ->
     neighbors = [0]
     tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     skip = false
-    watershedLayer = []
-    spinner.spin(spin_target)
+    watershedLayer = 0
     Q.spawn(run)
 
 run = ->

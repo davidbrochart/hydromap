@@ -7,19 +7,16 @@ x_deg = 0
 y_deg = 0
 x = 0
 y = 0
-pix_nb = 100
-x_pix = new Float64Array(pix_nb)
-y_pix = new Float64Array(pix_nb)
-polygon1 = 0
-polygon2 = 0
 outlet = 0
 neighbors_memsize = 1024
 neighbors_i = 0
 neighbors = new Uint8Array(neighbors_memsize)
 tile_width = 1200
 url = 0
-watershedLayer = 0
-ms = 10
+polygons = 0
+polyLayers = 0
+pix_i = 0
+pack_size = 100
 
 wait = (ms) ->
     deferred = Q.defer()
@@ -27,6 +24,39 @@ wait = (ms) ->
         deferred.resolve()
     , ms)
     return deferred.promise
+
+addPixel = ->
+    polygons[pix_i % pack_size] = turf.polygon([[
+        [x_deg - pix_deg2, y_deg - pix_deg2],
+        [x_deg - pix_deg2, y_deg + pix_deg2],
+        [x_deg + pix_deg2, y_deg + pix_deg2],
+        [x_deg + pix_deg2, y_deg - pix_deg2],
+        [x_deg - pix_deg2, y_deg - pix_deg2]
+    ]])
+    done_packing = false
+    pix_i += 1
+    i = pix_i
+    level = 1
+    while !done_packing
+        if i % pack_size == 0
+            polygons[level * pack_size + (i / pack_size - 1) % pack_size] = turf.merge(turf.featurecollection(polygons[(level * pack_size - pack_size)..(level * pack_size - 1)]))
+            polygons[level * pack_size + (i / pack_size - 1) % pack_size].properties = {
+                "fill": "#6BC65F",
+                "stroke": "#6BC65F",
+                "stroke-width": 1
+            }
+            polyLayers[level * pack_size + (i / pack_size - 1) % pack_size - pack_size] = L.mapbox.featureLayer(polygons[level * pack_size + (i / pack_size - 1) % pack_size]).addTo(map)
+            #console.log 'Added polygon at ' + (level * pack_size + (i / pack_size - 1) % pack_size - pack_size) + ', level = ' + level
+            for k in [(level * pack_size - pack_size)..(level * pack_size - 1)]
+                polygons[k] = 0
+                if level > 1
+                    if polyLayers[k - pack_size]?
+                        #console.log 'Removed polygon at ' + (k - pack_size) + ', level = ' + level
+                        map.removeLayer(polyLayers[k - pack_size])
+            i /= pack_size
+            level += 1
+        else
+            done_packing = true
 
 getTile = (url) ->
     console.log 'Downloading ' + url
@@ -48,32 +78,13 @@ processTile = ->
     done = false
     skip = false
     pix_i = 0
+    polygons = []
+    polyLayers = []
     while !done
         if !skip
-            x_pix[pix_i] = x_deg
-            y_pix[pix_i] = y_deg
-            pix_i += 1
-            if pix_i == pix_nb
-                pix_i = 0
-                for i in [0..(pix_nb - 1)]
-                    polygon1[i] = turf.polygon([[
-                        [x_pix[i] - pix_deg2, y_pix[i] - pix_deg2],
-                        [x_pix[i] - pix_deg2, y_pix[i] + pix_deg2],
-                        [x_pix[i] + pix_deg2, y_pix[i] + pix_deg2],
-                        [x_pix[i] + pix_deg2, y_pix[i] - pix_deg2],
-                        [x_pix[i] - pix_deg2, y_pix[i] - pix_deg2]
-                    ]])
-                polygon1[pix_nb] = polygon2
-                polygon2 = turf.merge(turf.featurecollection(polygon1))
-                polygon2.properties = {
-                    "fill": "#6BC65F",
-                    "stroke": "#6BC65F",
-                    "stroke-width": 5
-                }
-                if watershedLayer != 0
-                    map.removeLayer(watershedLayer)
-                watershedLayer = L.mapbox.featureLayer(polygon2).addTo(map)
-                yield wait(ms)
+            addPixel()
+            if pix_i % pack_size == 0
+                yield wait(1)
         skip = false
         nb = neighbors[neighbors_i]
         if nb == 255
@@ -93,30 +104,9 @@ processTile = ->
             if neighbors_i == 0
                 done = true
             else
-                x_pix[pix_i] = x_deg
-                y_pix[pix_i] = y_deg
-                pix_i += 1
-                if pix_i == pix_nb
-                    pix_i = 0
-                    for i in [0..(pix_nb - 1)]
-                        polygon1[i] = turf.polygon([[
-                            [x_pix[i] - pix_deg2, y_pix[i] - pix_deg2],
-                            [x_pix[i] - pix_deg2, y_pix[i] + pix_deg2],
-                            [x_pix[i] + pix_deg2, y_pix[i] + pix_deg2],
-                            [x_pix[i] + pix_deg2, y_pix[i] - pix_deg2],
-                            [x_pix[i] - pix_deg2, y_pix[i] - pix_deg2]
-                        ]])
-                    polygon1[pix_nb] = polygon2
-                    polygon2 = turf.merge(turf.featurecollection(polygon1))
-                    polygon2.properties = {
-                        "fill": "#6BC65F",
-                        "stroke": "#6BC65F",
-                        "stroke-width": 5
-                    }
-                    if watershedLayer != 0
-                        map.removeLayer(watershedLayer)
-                    watershedLayer = L.mapbox.featureLayer(polygon2).addTo(map)
-                    yield wait(ms)
+                addPixel()
+                if pix_i % pack_size == 0
+                    yield wait(1)
                 go_down = true
                 while go_down
                     if go_get_dir(tiles[0][y * tile_width + x], true) == -1
@@ -146,29 +136,20 @@ processTile = ->
             if go_get_dir(1 << i, true) == -1
                 yield Q.async(load_tile_and_go_get_dir)(1 << i, true)
         if done
-            if pix_i != 0
-                polygon1 = (turf.polygon([[
-                    [x_pix[i] - pix_deg2, y_pix[i] - pix_deg2],
-                    [x_pix[i] - pix_deg2, y_pix[i] + pix_deg2],
-                    [x_pix[i] + pix_deg2, y_pix[i] + pix_deg2],
-                    [x_pix[i] + pix_deg2, y_pix[i] - pix_deg2],
-                    [x_pix[i] - pix_deg2, y_pix[i] - pix_deg2]
-                ]]) for i in [0..(pix_i - 1)])
-                polygon1.push(polygon2)
-                polygon2 = turf.merge(turf.featurecollection(polygon1))
-                polygon2.properties = {
-                    "fill": "#6BC65F",
-                    "stroke": "#6BC65F",
-                    "stroke-width": 5
-                }
-                if watershedLayer != 0
-                    map.removeLayer(watershedLayer)
-                watershedLayer = L.mapbox.featureLayer(polygon2).addTo(map)
+            for layer in polyLayers
+                map.removeLayer(layer)
+            watershed = turf.merge(turf.featurecollection(polygons))
+            watershed.properties = {
+                "fill": "#6BC65F",
+                "stroke": "#6BC65F",
+                "stroke-width": 1
+            }
+            watershedLayer = L.mapbox.featureLayer(watershed).addTo(map)
             outletLayer = L.mapbox.featureLayer(outlet).addTo(map)
-            outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(polygon2) / 1e6, 1).toString() + ' km²').addTo(map)
+            outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(watershed) / 1e6, 1).toString() + ' km²').addTo(map)
             watershedLayer.on('mouseover', (e) -> outletLayer.openPopup())
             watershedLayer.on('click', (e) ->
-                url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(polygon2.geometry))
+                url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry))
                 link = document.createElement('a')
                 link.href = url
                 link.download = 'watershed.json'
@@ -405,16 +386,10 @@ load_tile_and_go_get_dir = (dir, go) ->
 
 map_on_click = (evt) ->
     url = get_url(evt.latlng.lat, evt.latlng.lng, true)
-    for i in [0..(pix_nb - 1)]
-        x_pix[i] = 0.0
-        y_pix[i] = 0.0
     outlet = turf.point([x_deg, y_deg])
-    polygon1 = (0 for i in [0..pix_nb])
-    polygon2 = []
     neighbors_i = 0
     neighbors[0] = 255
     tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-    watershedLayer = 0
     Q.spawn(run)
 
 run = ->

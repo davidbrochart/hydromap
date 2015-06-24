@@ -94,9 +94,7 @@ processTile = ->
                     dir_back = 1 << (i + 4)
                 else
                     dir_back = 1 << (i - 4)
-                dir_next = go_get_dir(1 << i, false)
-                if dir_next == -1
-                    dir_next = yield Q.async(load_tile_and_go_get_dir)(1 << i, false)
+                dir_next = yield go_get_dir_async(1 << i, false)
                 if dir_next == dir_back
                     nb = nb | (1 << i)
             neighbors[neighbors_i] = nb
@@ -109,8 +107,7 @@ processTile = ->
                     yield wait(1)
                 go_down = true
                 while go_down
-                    if go_get_dir(tiles[0][y * tile_width + x], true) == -1
-                        yield Q.async(load_tile_and_go_get_dir)(tiles[0][y * tile_width + x], true)
+                    yield go_get_dir_async(tiles[0][y * tile_width + x], true)
                     neighbors_i -= 1
                     nb = neighbors[neighbors_i]
                     i = find1(nb)
@@ -133,8 +130,7 @@ processTile = ->
                 neighbors_memsize *= 2
             neighbors[neighbors_i] = 255
             i = find1(nb)
-            if go_get_dir(1 << i, true) == -1
-                yield Q.async(load_tile_and_go_get_dir)(1 << i, true)
+            yield go_get_dir_async(1 << i, true)
         if done
             for layer in polyLayers
                 map.removeLayer(layer)
@@ -165,43 +161,6 @@ find1 = (a) ->
     return i
 
 go_get_dir = (dir, go) ->
-    x_next = x
-    y_next = y
-    x_deg_next = x_deg
-    y_deg_next = y_deg
-    if dir == 1
-        x_next += 1
-    else if dir == 2
-        x_next += 1
-        y_next += 1
-    else if dir == 4
-        y_next += 1
-    else if dir == 8
-        x_next -= 1
-        y_next += 1
-    else if dir == 16
-        x_next -= 1
-    else if dir == 32
-        x_next -= 1
-        y_next -= 1
-    else if dir == 64
-        y_next -= 1
-    else if dir == 128
-        x_next += 1
-        y_next -= 1
-    x_deg_next += (x_next - x) * pix_deg
-    y_deg_next -= (y_next - y) * pix_deg
-    if x_next == -1 or y_next == -1 or x_next == tile_width or y_next == tile_width
-        return -1
-    else
-        if go
-            x = x_next
-            y = y_next
-            x_deg = x_deg_next
-            y_deg = y_deg_next
-        return tiles[0][y_next * tile_width + x_next]
-
-load_tile_and_go_get_dir = (dir, go) ->
     x_next = x
     y_next = y
     x_deg_next = x_deg
@@ -384,6 +343,9 @@ load_tile_and_go_get_dir = (dir, go) ->
         y_deg = y_deg_next
     return tiles[tile_i][y_next * tile_width + x_next]
 
+go_get_dir_async = Q.async(go_get_dir)
+processTile_async = Q.async(processTile)
+
 map_on_click = (evt) ->
     url = get_url(evt.latlng.lat, evt.latlng.lng, true)
     outlet = turf.point([x_deg, y_deg])
@@ -394,7 +356,7 @@ map_on_click = (evt) ->
 
 run = ->
     tiles[0] = yield getTile(url)
-    Q.async(processTile)()
+    yield processTile_async()
 
 map.on('click', map_on_click)
 

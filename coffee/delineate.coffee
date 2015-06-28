@@ -85,7 +85,6 @@ processTile = ->
             addPixel()
             if pix_i % pack_size == 0
                 yield wait(1)
-        skip = false
         nb = neighbors[neighbors_i]
         if nb == 255
             nb = 0
@@ -102,9 +101,6 @@ processTile = ->
             if neighbors_i == 0
                 done = true
             else
-                addPixel()
-                if pix_i % pack_size == 0
-                    yield wait(1)
                 go_down = true
                 while go_down
                     yield go_get_dir_async(tiles[0][y * tile_width + x], true)
@@ -121,6 +117,7 @@ processTile = ->
                         skip = true
                     neighbors[neighbors_i] = nb
         else
+            skip = false
             neighbors_i += 1
             if neighbors_i == neighbors_memsize
                 neighbors_new = new Uint8Array(neighbors_memsize * 2)

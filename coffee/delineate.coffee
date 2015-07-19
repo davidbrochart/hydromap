@@ -7,60 +7,390 @@ x_deg = 0
 y_deg = 0
 x = 0
 y = 0
+# output mask ->
+mxw = 1000 # bytes
+myw = mxw * 8 # bits
+mx = 0
+my = 0
+mm = new Uint8Array(mxw * myw)
+mx0_deg = 0
+my0_deg = 0
+nbline_max = 65536
+mx0 = new Uint16Array(nbline_max)
+mx1 = new Uint16Array(nbline_max)
+my0 = new Uint16Array(nbline_max)
+my1 = new Uint16Array(nbline_max)
+# <- output mask
 outlet = 0
 neighbors_memsize = 1024
 neighbors_i = 0
 neighbors = new Uint8Array(neighbors_memsize)
 tile_width = 1200
-url = 0
 polygons = 0
 polyLayers = 0
+pol_i = 0
 pix_i = 0
-pack_size = 100
+pack_size = 10
+watershed = 0
+spin_opts = {
+, lines: 13 # The number of lines to draw
+, length: 28 # The length of each line
+, width: 14 # The line thickness
+, radius: 42 # The radius of the inner circle
+, scale: 1 # Scales overall size of the spinner
+, corners: 1 # Corner roundness (0..1)
+, color: '#6BC65F' # #rgb or #rrggbb or array of colors
+, opacity: 0.25 # Opacity of the lines
+, rotate: 0 # The rotation offset
+, direction: 1 # 1: clockwise, -1: counterclockwise
+, speed: 1 # Rounds per second
+, trail: 60 # Afterglow percentage
+, fps: 20 # Frames per second when using setTimeout() as a fallback for CSS
+, zIndex: 2e9 # The z-index (defaults to 2000000000)
+, className: 'spinner' # The CSS class to assign to the spinner
+, top: '50%' # Top position relative to parent
+, left: '50%' # Left position relative to parent
+, shadow: false # Whether to render a shadow
+, hwaccel: false # Whether to use hardware acceleration
+, position: 'absolute' # Element positioning
+}
+spin_target = document.getElementById('spin')
+spinner = new Spinner(spin_opts)
 
-wait = (ms) ->
-    deferred = Q.defer()
-    setTimeout( ->
-        deferred.resolve()
-    , ms)
-    return deferred.promise
-
-addPixel = ->
-    polygons[pix_i % pack_size] = turf.polygon([[
-        [x_deg - pix_deg2, y_deg - pix_deg2],
-        [x_deg - pix_deg2, y_deg + pix_deg2],
-        [x_deg + pix_deg2, y_deg + pix_deg2],
-        [x_deg + pix_deg2, y_deg - pix_deg2],
-        [x_deg - pix_deg2, y_deg - pix_deg2]
-    ]])
-    done_packing = false
-    pix_i += 1
-    i = pix_i
-    level = 1
-    while !done_packing
-        if i % pack_size == 0
-            polygons[level * pack_size + (i / pack_size - 1) % pack_size] = turf.merge(turf.featurecollection(polygons[(level * pack_size - pack_size)..(level * pack_size - 1)]))
-            polygons[level * pack_size + (i / pack_size - 1) % pack_size].properties = {
-                "fill": "#6BC65F",
-                "stroke": "#6BC65F",
-                "stroke-width": 1
-            }
-            polyLayers[level * pack_size + (i / pack_size - 1) % pack_size - pack_size] = L.mapbox.featureLayer(polygons[level * pack_size + (i / pack_size - 1) % pack_size]).addTo(map)
-            #console.log 'Added polygon at ' + (level * pack_size + (i / pack_size - 1) % pack_size - pack_size) + ', level = ' + level
-            for k in [(level * pack_size - pack_size)..(level * pack_size - 1)]
-                polygons[k] = 0
-                if level > 1
-                    if polyLayers[k - pack_size]?
-                        #console.log 'Removed polygon at ' + (k - pack_size) + ', level = ' + level
-                        map.removeLayer(polyLayers[k - pack_size])
-            i /= pack_size
-            level += 1
+runGen = (g, param) ->
+    it = g(param)
+    res = 0
+    val = 0
+    do iterate = (val) ->
+        ret = it.next(val)
+        if ret.done
+            res = ret.value
         else
-            done_packing = true
+            ret.value.then(iterate)
+    return res
 
-getTile = (url) ->
+#addPixel = ->
+#    mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
+#    if mx == 0 or mx == myw - 1 or my == 0 or my == myw - 1
+#        polygonize()
+#        mx0_deg = x_deg - pix_deg * myw / 2
+#        my0_deg = y_deg + pix_deg * myw / 2
+#        mx = myw / 2
+#        my = myw / 2
+#    return
+
+polygonize = ->
+    console.log 'polygonize'
+    line_i = 0
+    pix_j = 0
+    done = false
+    i0 = myw / 2 - 1
+    ix = i0
+    iy = i0
+    size = 1
+    going = 1
+    while not done
+       this_pix = false
+       if (mm[iy * mxw + Math.floor(ix / 8)] & (1 << (ix % 8))) >> (ix % 8) == 1
+           this_pix = true
+           pix_j += 1
+       if ix != 0
+           pix_l = false
+           if (mm[iy * mxw + Math.floor((ix - 1) / 8)] & (1 << ((ix - 1) % 8))) >> ((ix - 1) % 8) == 1
+               pix_l = true
+       if ix != myw - 1
+           pix_r = false
+           if (mm[iy * mxw + Math.floor((ix + 1) / 8)] & (1 << ((ix + 1) % 8))) >> ((ix + 1) % 8) == 1
+               pix_r = true
+       if iy != 0
+           pix_u = false
+           if (mm[(iy - 1) * mxw + Math.floor(ix / 8)] & (1 << (ix % 8))) >> (ix % 8) == 1
+               pix_u = true
+       if iy != myw - 1
+           pix_d = false
+           if (mm[(iy + 1) * mxw + Math.floor(ix / 8)] & (1 << (ix % 8))) >> (ix % 8) == 1
+               pix_d = true
+       if ix != 0 and iy != 0
+           pix_ul = false
+           if (mm[(iy - 1) * mxw + Math.floor((ix - 1) / 8)] & (1 << ((ix - 1) % 8))) >> ((ix - 1) % 8) == 1
+               pix_ul = true
+       if ix != myw - 1 and iy != 0
+           pix_ur = false
+           if (mm[(iy - 1) * mxw + Math.floor((ix + 1) / 8)] & (1 << ((ix + 1) % 8))) >> ((ix + 1) % 8) == 1
+               pix_ur = true
+       if ix != 0 and iy != myw - 1
+           pix_ll = false
+           if (mm[(iy + 1) * mxw + Math.floor((ix - 1) / 8)] & (1 << ((ix - 1) % 8))) >> ((ix - 1) % 8) == 1
+               pix_ll = true
+       if ix != myw - 1 and iy != myw - 1
+           pix_lr = false
+           if (mm[(iy + 1) * mxw + Math.floor((ix + 1) / 8)] & (1 << ((ix + 1) % 8))) >> ((ix + 1) % 8) == 1
+               pix_lr = true
+       # lower right:
+       if ix != myw - 1 and iy != myw - 1
+           if this_pix and not pix_r and pix_lr and not pix_ur
+               mx0[line_i] = 2 * ix + 2
+               mx1[line_i] = 2 * ix + 2 + 1
+               my0[line_i] = 2 * iy
+               my1[line_i] = 2 * iy + 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+           if this_pix and not pix_d and pix_lr and not pix_ll
+               mx0[line_i] = 2 * ix
+               mx1[line_i] = 2 * ix + 1
+               my0[line_i] = 2 * iy + 2
+               my1[line_i] = 2 * iy + 2 + 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+       # lower left:
+       if ix != 0 and iy != myw - 1
+           if this_pix and not pix_l and pix_ll and not pix_ul
+               mx0[line_i] = 2 * ix
+               mx1[line_i] = 2 * ix - 1
+               my0[line_i] = 2 * iy
+               my1[line_i] = 2 * iy + 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+           if this_pix and not pix_d and pix_ll and not pix_lr
+               mx0[line_i] = 2 * ix + 2
+               mx1[line_i] = 2 * ix + 1
+               my0[line_i] = 2 * iy + 2
+               my1[line_i] = 2 * iy + 2 + 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+       # upper left:
+       if ix != 0 and iy != 0
+           if this_pix and not pix_l and pix_ul and not pix_ll
+               mx0[line_i] = 2 * ix
+               mx1[line_i] = 2 * ix - 1
+               my0[line_i] = 2 * iy + 2
+               my1[line_i] = 2 * iy + 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+           if this_pix and not pix_u and pix_ul and not pix_ur
+               mx0[line_i] = 2 * ix + 2
+               mx1[line_i] = 2 * ix + 1
+               my0[line_i] = 2 * iy
+               my1[line_i] = 2 * iy - 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+       # upper right:
+       if ix != myw - 1 and iy != 0
+           if this_pix and not pix_u and pix_ur and not pix_ul
+               mx0[line_i] = 2 * ix
+               mx1[line_i] = 2 * ix + 1
+               my0[line_i] = 2 * iy
+               my1[line_i] = 2 * iy - 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+           if this_pix and not pix_r and pix_ur and not pix_lr
+               mx0[line_i] = 2 * ix + 2
+               mx1[line_i] = 2 * ix + 2 + 1
+               my0[line_i] = 2 * iy + 2
+               my1[line_i] = 2 * iy + 1
+               line_i += 1
+               if line_i == nbline_max
+                   extend_lineBuffer()
+       # left:
+       if (ix != 0 and this_pix and not pix_l and not pix_ul and not pix_ll) or (ix == 0 and this_pix)
+           mx0[line_i] = 2 * ix
+           mx1[line_i] = 2 * ix
+           my0[line_i] = 2 * iy
+           my1[line_i] = 2 * iy + 2
+           line_i += 1
+           if line_i == nbline_max
+               extend_lineBuffer()
+       # right:
+       if (ix != myw - 1 and this_pix and not pix_r and not pix_ur and not pix_lr) or (ix == myw - 1 and this_pix)
+           mx0[line_i] = 2 * ix + 2
+           mx1[line_i] = 2 * ix + 2
+           my0[line_i] = 2 * iy
+           my1[line_i] = 2 * iy + 2
+           line_i += 1
+           if line_i == nbline_max
+               extend_lineBuffer()
+       # up:
+       if (iy != 0 and this_pix and not pix_u and not pix_ul and not pix_ur) or (iy == 0 and this_pix)
+           mx0[line_i] = 2 * ix
+           mx1[line_i] = 2 * ix + 2
+           my0[line_i] = 2 * iy
+           my1[line_i] = 2 * iy
+           line_i += 1
+           if line_i == nbline_max
+               extend_lineBuffer()
+       # down:
+       if (iy != myw - 1 and this_pix and not pix_d and not pix_ll and not pix_lr) or (iy == myw - 1 and this_pix)
+           mx0[line_i] = 2 * ix
+           mx1[line_i] = 2 * ix + 2
+           my0[line_i] = 2 * iy + 2
+           my1[line_i] = 2 * iy + 2
+           line_i += 1
+           if line_i == nbline_max
+               extend_lineBuffer()
+        if pix_j == pix_i
+            done = true
+        else
+            if going == 1
+                ix += 1
+                if ix - i0 == size
+                    going = 2
+            else if going == 2
+                iy += 1
+                if iy - i0 == size
+                    going = 3
+            else if going == 3
+                if ix == 0
+                    done = true
+                else
+                    ix -= 1
+                    if i0 - ix == size
+                        going = 4
+            else if going == 4
+                iy -= 1
+                if i0 - iy == size
+                    going = 1
+                    size += 1
+    for i in [0..mxw * myw - 1]
+        mm[i] = 0
+    all_pol_done = false
+    polygon = []
+    while not all_pol_done
+        done = false
+        i = 0
+        while not done
+            if mx0[i] != nbline_max - 1
+                done = true
+                #console.log 'done'
+            else
+                i += 1
+                if i == line_i
+                    done = true
+                    all_pol_done = true
+                    #console.log 'all_pol_done'
+        if not all_pol_done
+            polygon.push([[mx0[i], my0[i]], [mx1[i], my1[i]]])
+            last_polygon = polygon[polygon.length - 1]
+            mx0[i] = nbline_max - 1
+            mx1[i] = nbline_max - 1
+            pol_done = false
+            while not pol_done
+                search_done = false
+                found = false
+                i = 0
+                this_x = last_polygon[last_polygon.length - 1][0]
+                this_y = last_polygon[last_polygon.length - 1][1]
+                while not search_done
+                    if mx0[i] != nbline_max - 1 and mx0[i] == this_x and my0[i] == this_y
+                        found = true
+                        found0 = true
+                        search_done = true
+                        #console.log 'found ;-)'
+                    else if mx1[i] != nbline_max - 1 and mx1[i] == this_x and my1[i] == this_y
+                        found = true
+                        found0 = false
+                        search_done = true
+                        #console.log 'found ;-)'
+                    else
+                        i += 1
+                        if i == line_i
+                            search_done = true
+                            #console.log 'not found!'
+                if found
+                    if found0
+                        last_polygon.push([mx1[i], my1[i]])
+                    else
+                        last_polygon.push([mx0[i], my0[i]])
+                    mx0[i] = nbline_max - 1
+                    mx1[i] = nbline_max - 1
+                if last_polygon[last_polygon.length - 1][0] == last_polygon[0][0] and last_polygon[last_polygon.length - 1][1] == last_polygon[0][1]
+                    pol_done = true
+            for i in [0..last_polygon.length - 1]
+                last_polygon[i][0] = mx0_deg + last_polygon[i][0] * pix_deg / 2
+                last_polygon[i][1] = my0_deg - last_polygon[i][1] * pix_deg / 2
+    for i in [0..polygon.length - 1]
+        polygon[i] = turf.polygon([polygon[i]])
+    console.log 'polygon.length = ', polygon.length
+    watershed = polygon[0]
+    for i in [0..polygon.length - 1]
+        for j in [0..polygon.length - 1]
+            if polygon[i] != 0 and polygon[j] != 0
+                intersect = turf.intersect(polygon[i], polygon[j])
+                if intersect?
+                    erase = turf.erase(polygon[i], polygon[j])
+                    if erase?
+                        polygon[i] = erase
+                        polygon[j] = 0
+                        watershed = erase
+                    else
+                        erase = turf.erase(polygon[j], polygon[i])
+                        if erase?
+                            polygon[i] = 0
+                            polygon[j] = erase
+                            watershed = erase
+    ## polygon packing:
+    #for i in [0..polygon.length - 1]
+    #    polygon[i] = turf.polygon([polygon[i]])
+    #polygons[pol_i % pack_size] = turf.merge(turf.featurecollection(polygon))
+    #polygons[pol_i % pack_size].properties = {
+    #    "fill": "#6BC65F",
+    #    "stroke": "#6BC65F",
+    #    "stroke-width": 1
+    #}
+    #polyLayers[pol_i % pack_size] = L.mapbox.featureLayer(polygons[pol_i % pack_size]).addTo(map)
+    #done_packing = false
+    #pol_i += 1
+    #i = pol_i
+    #level = 1
+    #while !done_packing
+    #    console.log 'Current level is ', level
+    #    if i % pack_size == 0
+    #        polygons[level * pack_size + (i / pack_size - 1) % pack_size] = turf.merge(turf.featurecollection(polygons[(level * pack_size - pack_size)..(level * pack_size - 1)]))
+    #        polygons[level * pack_size + (i / pack_size - 1) % pack_size].properties = {
+    #            "fill": "#6BC65F",
+    #            "stroke": "#6BC65F",
+    #            "stroke-width": 1
+    #        }
+    #        polyLayers[pack_size + level * pack_size + (i / pack_size - 1) % pack_size - pack_size] = L.mapbox.featureLayer(polygons[level * pack_size + (i / pack_size - 1) % pack_size]).addTo(map)
+    #        console.log 'Added polygon at ' + (level * pack_size + (i / pack_size - 1) % pack_size - pack_size) + ', level = ' + level
+    #        for k in [(level * pack_size - pack_size)..(level * pack_size - 1)]
+    #            polygons[k] = 0
+    #            if true#level > 1
+    #                if polyLayers[k]?
+    #                    console.log 'Removed polygon at ' + k + ', level = ' + level
+    #                    map.removeLayer(polyLayers[k])
+    #        i /= pack_size
+    #        level += 1
+    #    else
+    #        done_packing = true
+    return
+
+extend_lineBuffer = ->
+    console.log 'extend_lineBuffer'
+    new_size = nbline_max * 2
+    new_mx0 = new Uint16Array(new_size)
+    new_my0 = new Uint16Array(new_size)
+    new_mx1 = new Uint16Array(new_size)
+    new_my1 = new Uint16Array(new_size)
+    for i in [0..nbline_max - 1]
+        new_mx0[i] = mx0[i]
+        new_my0[i] = my0[i]
+        new_mx1[i] = mx1[i]
+        new_my1[i] = my1[i]
+    mx0 = new_mx0
+    my0 = new_my0
+    mx1 = new_mx1
+    my1 = new_my1
+    nbline_max = new_size
+
+getTile = (url, cb) ->
     console.log 'Downloading ' + url
-    deferred = Q.defer()
     req = new XMLHttpRequest()
     req.open 'GET', url, true
     req.responseType = 'arraybuffer'
@@ -68,23 +398,34 @@ getTile = (url) ->
         arrayBuffer = req.response
         if arrayBuffer
             console.log 'Done!'
-            deferred.resolve(new Uint8Array(arrayBuffer))
-        else
-            deferred.reject(new Error("Can't do it"))
+            cb(new Uint8Array(arrayBuffer))
     req.send(null)
-    return deferred.promise
+    return
 
-processTile = ->
+processTile = (url) ->
+    spinner.spin(spin_target)
+    outlet = turf.point([x_deg, y_deg])
+    mx = myw / 2 - 1
+    my = myw / 2 - 1
+    mx0_deg = x_deg - pix_deg * mx
+    my0_deg = y_deg + pix_deg * my
+    neighbors_i = 0
+    neighbors[0] = 255
+    for i in [0..mxw * myw - 1]
+        mm[i] = 0
+    tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    tiles[0] = yield p_getTile(url)
     done = false
     skip = false
+    pol_i = 0
     pix_i = 0
     polygons = []
     polyLayers = []
     while !done
         if !skip
-            addPixel()
-            if pix_i % pack_size == 0
-                yield wait(1)
+            #addPixel()
+            mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
+            pix_i += 1
         nb = neighbors[neighbors_i]
         if nb == 255
             nb = 0
@@ -93,7 +434,11 @@ processTile = ->
                     dir_back = 1 << (i + 4)
                 else
                     dir_back = 1 << (i - 4)
-                dir_next = yield go_get_dir_async(1 << i, false)
+                ret = go_get_dir(1 << i, false, true)
+                if ret['url'] != ''
+                    this_tile = yield p_getTile(ret['url'])
+                    ret = go_get_dir(1 << i, false, false, this_tile)
+                dir_next = ret['dir']
                 if dir_next == dir_back
                     nb = nb | (1 << i)
             neighbors[neighbors_i] = nb
@@ -103,8 +448,13 @@ processTile = ->
             else
                 go_down = true
                 while go_down
-                    yield go_get_dir_async(tiles[0][y * tile_width + x], true)
+                    ret = go_get_dir(tiles[0][y * tile_width + x], true, true)
+                    if ret['url'] != ''
+                        this_tile = yield p_getTile(ret['url'])
+                        ret = go_get_dir(tiles[0][y * tile_width + x], true, false, this_tile)
                     neighbors_i -= 1
+                    if neighbors_i < 0
+                        console.log 'neighbors_i < 0'
                     nb = neighbors[neighbors_i]
                     i = find1(nb)
                     nb = nb & (255 - (1 << i))
@@ -120,18 +470,21 @@ processTile = ->
             skip = false
             neighbors_i += 1
             if neighbors_i == neighbors_memsize
+                console.log 'Extending neighbors'
                 neighbors_new = new Uint8Array(neighbors_memsize * 2)
-                for i in [0..(neighbors_memsize - 1)]
+                for i in [0..neighbors_memsize - 1]
                     neighbors_new[i] = neighbors[i]
                 neighbors = neighbors_new
                 neighbors_memsize *= 2
             neighbors[neighbors_i] = 255
             i = find1(nb)
-            yield go_get_dir_async(1 << i, true)
+            ret = go_get_dir(1 << i, true, true)
+            if ret['url'] != ''
+                this_tile = yield p_getTile(ret['url'])
+                ret = go_get_dir(1 << i, true, false, this_tile)
         if done
-            for layer in polyLayers
-                map.removeLayer(layer)
-            watershed = turf.merge(turf.featurecollection(polygons))
+            spinner.stop()
+            polygonize()
             watershed.properties = {
                 "fill": "#6BC65F",
                 "stroke": "#6BC65F",
@@ -149,6 +502,7 @@ processTile = ->
                 link.click()
                 alert('Watershed GeoJSON downloaded')
             )
+    return
 
 find1 = (a) ->
     i = 0
@@ -157,9 +511,13 @@ find1 = (a) ->
         i += 1
     return i
 
-go_get_dir = (dir, go) ->
+go_get_dir = (dir, go, first, this_tile) ->
+    ret = []
+    ret['url'] = ''
     x_next = x
     y_next = y
+    mx_next = mx
+    my_next = my
     x_deg_next = x_deg
     y_deg_next = y_deg
     tile_i = 0
@@ -185,175 +543,242 @@ go_get_dir = (dir, go) ->
         y_next -= 1
     x_deg_next += (x_next - x) * pix_deg
     y_deg_next -= (y_next - y) * pix_deg
+    mx_next += x_next - x
+    my_next += y_next - y
     if x_next == -1 and y_next == -1
         x_next = tile_width - 1
         y_next = tile_width - 1
         if go
-            tiles[1] = tiles[7]
-            tiles[2] = tiles[0]
-            tiles[3] = tiles[5]
-            tiles[0] = tiles[6]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[4] = 0
-            tiles[5] = 0
-            tiles[6] = 0
-            tiles[7] = 0
-            tiles[8] = 0
+            if tiles[6] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[6] = this_tile
+            if ret['url'] == ''
+                tiles[1] = tiles[7]
+                tiles[2] = tiles[0]
+                tiles[3] = tiles[5]
+                tiles[0] = tiles[6]
+                tiles[4] = 0
+                tiles[5] = 0
+                tiles[6] = 0
+                tiles[7] = 0
+                tiles[8] = 0
         else
             tile_i = 6
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if x_next == tile_width and y_next == -1
         x_next = 0
         y_next = tile_width - 1
         if go
-            tiles[3] = tiles[1]
-            tiles[4] = tiles[0]
-            tiles[5] = tiles[7]
-            tiles[0] = tiles[8]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[2] = 0
-            tiles[1] = 0
-            tiles[8] = 0
-            tiles[7] = 0
-            tiles[6] = 0
+            if tiles[8] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[8] = this_tile
+            if ret['url'] == ''
+                tiles[3] = tiles[1]
+                tiles[4] = tiles[0]
+                tiles[5] = tiles[7]
+                tiles[0] = tiles[8]
+                tiles[2] = 0
+                tiles[1] = 0
+                tiles[8] = 0
+                tiles[7] = 0
+                tiles[6] = 0
         else
             tile_i = 8
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if x_next == tile_width and y_next == tile_width
         x_next = 0
         y_next = 0
         if go
-            tiles[5] = tiles[3]
-            tiles[6] = tiles[0]
-            tiles[7] = tiles[1]
-            tiles[0] = tiles[2]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[4] = 0
-            tiles[3] = 0
-            tiles[2] = 0
-            tiles[1] = 0
-            tiles[8] = 0
+            if tiles[2] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[2] = this_tile
+            if ret['url'] == ''
+                tiles[5] = tiles[3]
+                tiles[6] = tiles[0]
+                tiles[7] = tiles[1]
+                tiles[0] = tiles[2]
+                tiles[4] = 0
+                tiles[3] = 0
+                tiles[2] = 0
+                tiles[1] = 0
+                tiles[8] = 0
         else
             tile_i = 2
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if x_next == -1 and y_next == tile_width
         x_next = tile_width - 1
         y_next = 0
         if go
-            tiles[7] = tiles[5]
-            tiles[8] = tiles[0]
-            tiles[1] = tiles[3]
-            tiles[0] = tiles[4]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[6] = 0
-            tiles[5] = 0
-            tiles[4] = 0
-            tiles[3] = 0
-            tiles[2] = 0
+            if tiles[4] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[4] = this_tile
+            if ret['url'] == ''
+                tiles[7] = tiles[5]
+                tiles[8] = tiles[0]
+                tiles[1] = tiles[3]
+                tiles[0] = tiles[4]
+                tiles[6] = 0
+                tiles[5] = 0
+                tiles[4] = 0
+                tiles[3] = 0
+                tiles[2] = 0
         else
             tile_i = 4
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if y_next == -1
         y_next = tile_width - 1
         if go
-            tiles[4] = tiles[5]
-            tiles[3] = tiles[0]
-            tiles[2] = tiles[1]
-            tiles[5] = tiles[6]
-            tiles[0] = tiles[7]
-            tiles[1] = tiles[8]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[6] = 0
-            tiles[7] = 0
-            tiles[8] = 0
+            if tiles[7] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[7] = this_tile
+            if ret['url'] == ''
+                tiles[4] = tiles[5]
+                tiles[3] = tiles[0]
+                tiles[2] = tiles[1]
+                tiles[5] = tiles[6]
+                tiles[0] = tiles[7]
+                tiles[1] = tiles[8]
+                tiles[6] = 0
+                tiles[7] = 0
+                tiles[8] = 0
         else
             tile_i = 7
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if x_next == tile_width
         x_next = 0
         if go
-            tiles[6] = tiles[7]
-            tiles[5] = tiles[0]
-            tiles[4] = tiles[3]
-            tiles[7] = tiles[8]
-            tiles[0] = tiles[1]
-            tiles[3] = tiles[2]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[8] = 0
-            tiles[1] = 0
-            tiles[2] = 0
+            if tiles[1] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[1] = this_tile
+            if ret['url'] == ''
+                tiles[6] = tiles[7]
+                tiles[5] = tiles[0]
+                tiles[4] = tiles[3]
+                tiles[7] = tiles[8]
+                tiles[0] = tiles[1]
+                tiles[3] = tiles[2]
+                tiles[8] = 0
+                tiles[1] = 0
+                tiles[2] = 0
         else
             tile_i = 1
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if y_next == tile_width
         y_next = 0
         if go
-            tiles[6] = tiles[5]
-            tiles[7] = tiles[0]
-            tiles[8] = tiles[1]
-            tiles[5] = tiles[4]
-            tiles[0] = tiles[3]
-            tiles[1] = tiles[2]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[4] = 0
-            tiles[3] = 0
-            tiles[2] = 0
+            if tiles[3] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[3] = this_tile
+            if ret['url'] == ''
+                tiles[6] = tiles[5]
+                tiles[7] = tiles[0]
+                tiles[8] = tiles[1]
+                tiles[5] = tiles[4]
+                tiles[0] = tiles[3]
+                tiles[1] = tiles[2]
+                tiles[4] = 0
+                tiles[3] = 0
+                tiles[2] = 0
         else
             tile_i = 3
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
     else if x_next == -1
         x_next = tile_width - 1
         if go
-            tiles[8] = tiles[7]
-            tiles[1] = tiles[0]
-            tiles[2] = tiles[3]
-            tiles[7] = tiles[6]
-            tiles[0] = tiles[5]
-            tiles[3] = tiles[4]
-            if tiles[0] == 0
-                tiles[0] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-            tiles[6] = 0
-            tiles[5] = 0
-            tiles[4] = 0
+            if tiles[5] == 0
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[5] = this_tile
+            if ret['url'] == ''
+                tiles[8] = tiles[7]
+                tiles[1] = tiles[0]
+                tiles[2] = tiles[3]
+                tiles[7] = tiles[6]
+                tiles[0] = tiles[5]
+                tiles[3] = tiles[4]
+                tiles[6] = 0
+                tiles[5] = 0
+                tiles[4] = 0
         else
             tile_i = 5
             if tiles[tile_i] == 0
-                tiles[tile_i] = yield getTile(get_url(y_deg_next, x_deg_next, false))
-    if go
-        x = x_next
-        y = y_next
-        x_deg = x_deg_next
-        y_deg = y_deg_next
-    return tiles[tile_i][y_next * tile_width + x_next]
-
-go_get_dir_async = Q.async(go_get_dir)
-processTile_async = Q.async(processTile)
+                if first
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
+                else
+                    tiles[tile_i] = this_tile
+    if ret['url'] == ''
+        if go
+            x = x_next
+            y = y_next
+            x_deg = x_deg_next
+            y_deg = y_deg_next
+            mx = mx_next
+            my = my_next
+        ret['dir'] = tiles[tile_i][y_next * tile_width + x_next]
+    return ret
 
 map_on_click = (evt) ->
-    url = get_url(evt.latlng.lat, evt.latlng.lng, true)
-    outlet = turf.point([x_deg, y_deg])
-    neighbors_i = 0
-    neighbors[0] = 255
-    tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-    Q.spawn(run)
+    runGen(processTile, get_url(evt.latlng.lat, evt.latlng.lng, true))
+    return
+
+p_wait = (ms) ->
+    return new Promise((resolve, reject) ->
+        setTimeout(resolve, ms)
+        return
+    )
+
+p_getTile = (url) ->
+    return new Promise((resolve, reject) ->
+        getTile(url, resolve)
+        return
+    )
 
 run = ->
-    tiles[0] = yield getTile(url)
-    yield processTile_async()
+    runGen(processTile)
+    return
 
 map.on('click', map_on_click)
 
@@ -725,10 +1150,10 @@ get_url = (lat, lon, set_xy) ->
     else
         lon_str = lon0.toString() + 'E'
     tile_name = lat_str + '_' + lon_str
-    url = 'https://dl.dropboxusercontent.com/s/' + tile_code[tile_name] + '/tile_' + tile_name + '.bin?dl=1'
+    this_url = 'https://dl.dropboxusercontent.com/s/' + tile_code[tile_name] + '/tile_' + tile_name + '.bin?dl=1'
     if set_xy
         x = Math.round((lon - lon0) / pix_deg)
         y = Math.round((lat0 - lat) / pix_deg)
         x_deg = lon0 + x * pix_deg
         y_deg = lat0 - y * pix_deg
-    return url
+    return this_url

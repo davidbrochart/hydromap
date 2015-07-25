@@ -8,7 +8,7 @@ y_deg = 0
 x = 0
 y = 0
 # output mask ->
-mxw = 1000 # bytes
+mxw = 1500 # bytes
 myw = mxw * 8 # bits
 mx = 0
 my = 0
@@ -404,7 +404,7 @@ getTile = (url, cb) ->
 
 processTile = (url) ->
     spinner.spin(spin_target)
-    outlet = turf.point([x_deg, y_deg])
+    outlet = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
     mx = myw / 2 - 1
     my = myw / 2 - 1
     mx0_deg = x_deg - pix_deg * mx
@@ -1152,8 +1152,8 @@ get_url = (lat, lon, set_xy) ->
     tile_name = lat_str + '_' + lon_str
     this_url = 'https://dl.dropboxusercontent.com/s/' + tile_code[tile_name] + '/tile_' + tile_name + '.bin?dl=1'
     if set_xy
-        x = Math.round((lon - lon0) / pix_deg)
-        y = Math.round((lat0 - lat) / pix_deg)
+        x = Math.floor((lon - lon0) / pix_deg)
+        y = Math.floor((lat0 - lat) / pix_deg)
         x_deg = lon0 + x * pix_deg
         y_deg = lat0 - y * pix_deg
     return this_url

@@ -1,5 +1,25 @@
+addLayer = (layer, name, zIndex) ->
+    layer.setZIndex(zIndex).addTo(map)
+    layer.setOpacity(0.5)
+    link = document.createElement('a')
+    link.href = '#'
+    link.className = 'active'
+    link.innerHTML = name
+    link.onclick = (e) ->
+        e.preventDefault()
+        e.stopPropagation()
+        if map.hasLayer(layer)
+            map.removeLayer(layer)
+            this.className = ''
+        else
+            map.addLayer(layer)
+            this.className = 'active'
+    layers.appendChild(link)
+
 L.mapbox.accessToken = 'pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw'
 map = L.mapbox.map('map', 'examples.map-2k9d7u0c').setView([-10, -60], 5)
+layers = document.getElementById('menu-ui')
+addLayer(L.mapbox.tileLayer('davidbrochart.01119e67'), 'Flow accumulation', 1)
 pix_deg = 0.0083333333333
 pix_deg2 = (pix_deg + pix_deg * 1e-5) / 2
 tiles = 0

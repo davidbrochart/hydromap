@@ -16,10 +16,29 @@ addLayer = (layer, name, zIndex) ->
             this.className = 'active'
     layers.appendChild(link)
 
+action = 'Watershed'
+action_switch = ->
+    link = document.createElement('a')
+    link.href = '#'
+    link.className = 'active'
+    link.innerHTML = 'Watershed'
+    link.onclick = (e) ->
+        e.preventDefault()
+        e.stopPropagation()
+        if link.innerHTML == 'Watershed'
+            action = 'Stream'
+            link.innerHTML = 'Stream'
+        else
+            action = 'Watershed'
+            link.innerHTML = 'Watershed'
+    layers.appendChild(link)
+
 L.mapbox.accessToken = 'pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw'
 map = L.mapbox.map('map', 'examples.map-2k9d7u0c').setView([-10, -60], 5)
 layers = document.getElementById('menu-ui')
 addLayer(L.mapbox.tileLayer('davidbrochart.01119e67'), 'Flow accumulation', 1)
+action_switch()
+
 pix_deg = 0.0083333333333
 pix_deg2 = (pix_deg + pix_deg * 1e-5) / 2
 tiles = 0
@@ -41,7 +60,6 @@ mx1 = new Uint16Array(nbline_max)
 my0 = new Uint16Array(nbline_max)
 my1 = new Uint16Array(nbline_max)
 # <- output mask
-outlet = 0
 neighbors_memsize = 1024
 neighbors_i = 0
 neighbors = new Uint8Array(neighbors_memsize)
@@ -422,7 +440,7 @@ getTile = (url, cb) ->
     req.send(null)
     return
 
-processTile = (url) ->
+do_delineate = (url) ->
     spinner.spin(spin_target)
     outlet = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
     mx = myw / 2 - 1
@@ -522,6 +540,45 @@ processTile = (url) ->
                 link.click()
                 alert('Watershed GeoJSON downloaded')
             )
+    return
+
+do_stream = (url) ->
+    spinner.spin(spin_target)
+    source = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
+    tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    tiles[0] = yield p_getTile(url)
+    stream = [[x_deg + pix_deg / 2, y_deg - pix_deg / 2]]
+    done = false
+    while !done
+        x_deg_keep = x_deg
+        y_deg_keep = y_deg
+        ret = go_get_dir(tiles[0][y * tile_width + x], true, true)
+        if ret['url'] != ''
+            this_tile = yield p_getTile(ret['url'])
+            ret = go_get_dir(tiles[0][y * tile_width + x], true, false, this_tile)
+        if x_deg == x_deg_keep and y_deg == y_deg_keep
+            done = true
+        else
+            stream.push([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
+    stream = turf.linestring(stream)
+    spinner.stop()
+    stream.properties = {
+        "fill": "#6BC65F",
+        "stroke": "#6BC65F",
+        "stroke-width": 3
+    }
+    streamLayer = L.mapbox.featureLayer(stream).addTo(map)
+    sourceLayer = L.mapbox.featureLayer(source).addTo(map)
+    sourceLayer.bindPopup('<strong>Length</strong> = ' + round(turf.lineDistance(stream, 'kilometers'), 1).toString() + ' km').addTo(map)
+    streamLayer.on('mouseover', (e) -> sourceLayer.openPopup())
+    streamLayer.on('click', (e) ->
+        url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(stream.geometry))
+        link = document.createElement('a')
+        link.href = url
+        link.download = 'stream.json'
+        link.click()
+        alert('Stream GeoJSON downloaded')
+    )
     return
 
 find1 = (a) ->
@@ -780,8 +837,15 @@ go_get_dir = (dir, go, first, this_tile) ->
         ret['dir'] = tiles[tile_i][y_next * tile_width + x_next]
     return ret
 
+do_action = (url) ->
+    if action == 'Watershed'
+        runGen(do_delineate, url)
+    else
+        runGen(do_stream, url)
+    return
+
 map_on_click = (evt) ->
-    runGen(processTile, get_url(evt.latlng.lat, evt.latlng.lng, true))
+    do_action(get_url(evt.latlng.lat, evt.latlng.lng, true))
     return
 
 p_wait = (ms) ->
@@ -795,10 +859,6 @@ p_getTile = (url) ->
         getTile(url, resolve)
         return
     )
-
-run = ->
-    runGen(processTile)
-    return
 
 map.on('click', map_on_click)
 

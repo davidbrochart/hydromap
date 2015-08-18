@@ -52,7 +52,7 @@
 
   layers = document.getElementById('menu-ui');
 
-  addLayer(L.mapbox.tileLayer('davidbrochart.01119e67'), 'Flow accumulation', 1);
+  addLayer(L.mapbox.tileLayer('davidbrochart.1096eff6'), 'Flow accumulation', 1);
 
   action_switch();
 

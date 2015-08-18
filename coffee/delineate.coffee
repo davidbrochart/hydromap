@@ -36,7 +36,7 @@ action_switch = ->
 L.mapbox.accessToken = 'pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw'
 map = L.mapbox.map('map', 'examples.map-2k9d7u0c').setView([-10, -60], 5)
 layers = document.getElementById('menu-ui')
-addLayer(L.mapbox.tileLayer('davidbrochart.01119e67'), 'Flow accumulation', 1)
+addLayer(L.mapbox.tileLayer('davidbrochart.1096eff6'), 'Flow accumulation', 1)
 action_switch()
 
 pix_deg = 0.0083333333333

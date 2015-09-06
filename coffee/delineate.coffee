@@ -16,29 +16,6 @@ addLayer = (layer, name, zIndex) ->
             this.className = 'active'
     layers.appendChild(link)
 
-action = 'Watershed'
-action_switch = ->
-    link = document.createElement('a')
-    link.href = '#'
-    link.className = 'active'
-    link.innerHTML = 'Watershed'
-    link.onclick = (e) ->
-        e.preventDefault()
-        e.stopPropagation()
-        if link.innerHTML == 'Watershed'
-            action = 'Stream'
-            link.innerHTML = 'Stream'
-        else
-            action = 'Watershed'
-            link.innerHTML = 'Watershed'
-    layers.appendChild(link)
-
-L.mapbox.accessToken = 'pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw'
-map = L.mapbox.map('map', 'examples.map-2k9d7u0c').setView([-10, -60], 5)
-layers = document.getElementById('menu-ui')
-addLayer(L.mapbox.tileLayer('davidbrochart.1096eff6'), 'Flow accumulation', 1)
-action_switch()
-
 pix_deg = 0.0083333333333
 pix_deg2 = (pix_deg + pix_deg * 1e-5) / 2
 tiles = 0
@@ -70,6 +47,13 @@ pol_i = 0
 pix_i = 0
 pack_size = 10
 watershed = 0
+last_watershed = 0
+watershedLayer = 0
+samples = []
+sample_i = 0
+sample_nb = 10
+sample_cb = 0
+watersheds = 0
 spin_opts = {
 , lines: 13 # The number of lines to draw
 , length: 28 # The length of each line
@@ -95,8 +79,8 @@ spin_opts = {
 spin_target = document.getElementById('spin')
 spinner = new Spinner(spin_opts)
 
-runGen = (g, param) ->
-    it = g(param)
+runGen = (g, p) ->
+    it = g(p)
     res = 0
     val = 0
     do iterate = (val) ->
@@ -440,8 +424,16 @@ getTile = (url, cb) ->
     req.send(null)
     return
 
-do_delineate = (url) ->
-    spinner.spin(spin_target)
+do_delineate = (p) ->
+    latlng = p[0]
+    save = p[1]
+    cb = p[2]
+    if save
+        url = get_url(samples[sample_i][0], samples[sample_i][1], true)
+    else
+        url = get_url(latlng[0], latlng[1], true)
+    if !save
+        spinner.spin(spin_target)
     outlet = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
     mx = myw / 2 - 1
     my = myw / 2 - 1
@@ -521,28 +513,61 @@ do_delineate = (url) ->
                 this_tile = yield p_getTile(ret['url'])
                 ret = go_get_dir(1 << i, true, false, this_tile)
         if done
-            spinner.stop()
+            if !save
+                spinner.stop()
             polygonize()
             watershed.properties = {
                 "fill": "#6BC65F",
                 "stroke": "#6BC65F",
                 "stroke-width": 1
             }
-            watershedLayer = L.mapbox.featureLayer(watershed).addTo(map)
-            outletLayer = L.mapbox.featureLayer(outlet).addTo(map)
-            outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(watershed) / 1e6, 1).toString() + ' km²').addTo(map)
-            watershedLayer.on('mouseover', (e) -> outletLayer.openPopup())
-            watershedLayer.on('click', (e) ->
-                url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry))
-                link = document.createElement('a')
-                link.href = url
-                link.download = 'watershed.json'
-                link.click()
-                alert('Watershed GeoJSON downloaded')
-            )
+            if save
+                if sample_i == 0
+                    sample_cb = cb
+                    this_watershed = watershed
+                    watersheds = []
+                else
+                    this_watershed = turf.erase(watershed, last_watershed)
+                    map.removeLayer(watershedLayer)
+                watersheds.push(this_watershed)
+                sample_i += 1
+                if sample_i < samples.length
+                    watershedLayer = L.mapbox.featureLayer(this_watershed).addTo(map)
+                    last_watershed = watershed
+                    sample_cb()
+                else
+                    spinner.stop()
+                    watersheds = turf.featurecollection(watersheds)
+                    watershedLayer = L.mapbox.featureLayer(watersheds).addTo(map)
+                    console.log watersheds
+                    watershedLayer.on('click', (e) ->
+                        url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watersheds))
+                        link = document.createElement('a')
+                        link.href = url
+                        link.download = 'watershed.json'
+                        link.click()
+                        alert('Watershed GeoJSON downloaded')
+                    )
+            else
+                watershedLayer = L.mapbox.featureLayer(watershed).addTo(map)
+                outletLayer = L.mapbox.featureLayer(outlet).addTo(map)
+                outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(watershed) / 1e6, 1).toString() + ' km²').addTo(map)
+                watershedLayer.on('mouseover', (e) -> outletLayer.openPopup())
+                watershedLayer.on('click', (e) ->
+                    url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry))
+                    link = document.createElement('a')
+                    link.href = url
+                    link.download = 'watershed.json'
+                    link.click()
+                    alert('Watershed GeoJSON downloaded')
+                )
     return
 
-do_stream = (url) ->
+do_stream = (p) ->
+    latlng = p[0]
+    sample = p[1]
+    cb = p[2]
+    url = get_url(latlng[0], latlng[1], true)
     spinner.spin(spin_target)
     source = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
     tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -561,24 +586,37 @@ do_stream = (url) ->
         else
             stream.push([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
     stream = turf.linestring(stream)
-    spinner.stop()
+    if !sample
+        spinner.stop()
     stream.properties = {
         "fill": "#6BC65F",
         "stroke": "#6BC65F",
         "stroke-width": 3
     }
     streamLayer = L.mapbox.featureLayer(stream).addTo(map)
-    sourceLayer = L.mapbox.featureLayer(source).addTo(map)
-    sourceLayer.bindPopup('<strong>Length</strong> = ' + round(turf.lineDistance(stream, 'kilometers'), 1).toString() + ' km').addTo(map)
-    streamLayer.on('mouseover', (e) -> sourceLayer.openPopup())
-    streamLayer.on('click', (e) ->
-        url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(stream.geometry))
-        link = document.createElement('a')
-        link.href = url
-        link.download = 'stream.json'
-        link.click()
-        alert('Stream GeoJSON downloaded')
+    if !sample
+        sourceLayer = L.mapbox.featureLayer(source).addTo(map)
+        sourceLayer.bindPopup('<strong>Length</strong> = ' + round(turf.lineDistance(stream, 'kilometers'), 1).toString() + ' km').addTo(map)
+        streamLayer.on('mouseover', (e) -> sourceLayer.openPopup())
+        streamLayer.on('click', (e) ->
+            url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(stream.geometry))
+            link = document.createElement('a')
+            link.href = url
+            link.download = 'stream.json'
+            link.click()
+            alert('Stream GeoJSON downloaded')
     )
+    if sample
+        samples = []
+        i = 0
+        done = false
+        while !done
+            i += sample_nb
+            if i < stream.geometry.coordinates.length
+                samples.push([stream.geometry.coordinates[i][1], stream.geometry.coordinates[i][0]])
+            else
+                done = true
+        cb()
     return
 
 find1 = (a) ->
@@ -837,17 +875,6 @@ go_get_dir = (dir, go, first, this_tile) ->
         ret['dir'] = tiles[tile_i][y_next * tile_width + x_next]
     return ret
 
-do_action = (url) ->
-    if action == 'Watershed'
-        runGen(do_delineate, url)
-    else
-        runGen(do_stream, url)
-    return
-
-map_on_click = (evt) ->
-    do_action(get_url(evt.latlng.lat, evt.latlng.lng, true))
-    return
-
 p_wait = (ms) ->
     return new Promise((resolve, reject) ->
         setTimeout(resolve, ms)
@@ -859,8 +886,6 @@ p_getTile = (url) ->
         getTile(url, resolve)
         return
     )
-
-map.on('click', map_on_click)
 
 round = (number, precision) ->
     mult = Math.pow(10, precision)
@@ -1237,3 +1262,34 @@ get_url = (lat, lon, set_xy) ->
         x_deg = lon0 + x * pix_deg
         y_deg = lat0 - y * pix_deg
     return this_url
+
+L.mapbox.accessToken = 'pk.eyJ1IjoiZGF2aWRicm9jaGFydCIsImEiOiJ6eU40bEVvIn0.xnMppw5d4NoZK_11lA-lGw'
+map = L.mapbox.map('map', 'examples.map-2k9d7u0c', {
+    contextmenu: true,
+    contextmenuWidth: 140,
+    contextmenuItems: [{
+        text: 'Show watershed',
+        callback: (e) ->
+            runGen(do_delineate, [[e.latlng.lat, e.latlng.lng], false])
+    }, {
+        text: 'Show stream',
+        callback: (e) ->
+            runGen(do_stream, [[e.latlng.lat, e.latlng.lng], false])
+    }, '-', {
+        text: 'Show watersheds along stream',
+        callback: (e) ->
+            runGen(do_stream, [[e.latlng.lat, e.latlng.lng], true, ->
+                sample_i = 0
+                runGen(do_delineate, [[0, 0], true, ->
+                    runGen(do_delineate, [[0, 0], true])
+                ])
+            ])
+    }]}).setView([-10, -60], 5)
+
+map.on('click', (e) ->
+    alert('LatLon = ' + round(e.latlng.lat, 3) + ', ' + round(e.latlng.lng, 3))
+    return
+)
+
+layers = document.getElementById('menu-ui')
+addLayer(L.mapbox.tileLayer('davidbrochart.1096eff6'), 'Flow accumulation', 1)

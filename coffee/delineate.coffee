@@ -29,6 +29,7 @@ myw = mxw * 8 # bits
 mx = 0
 my = 0
 mm = new Uint8Array(mxw * myw)
+mm_back = new Uint8Array(mxw * myw)
 mx0_deg = 0
 my0_deg = 0
 nbline_max = 65536
@@ -47,11 +48,10 @@ pol_i = 0
 pix_i = 0
 pack_size = 10
 watershed = 0
-last_watershed = 0
 watershedLayer = 0
 samples = []
 sample_i = 0
-sample_nb = 10
+sample_nb = 50
 sample_cb = 0
 watersheds = 0
 spin_opts = {
@@ -113,40 +113,40 @@ polygonize = ->
     going = 1
     while not done
        this_pix = false
-       if (mm[iy * mxw + Math.floor(ix / 8)] & (1 << (ix % 8))) >> (ix % 8) == 1
+       if (mm[iy * mxw + Math.floor(ix / 8)] >> (ix % 8)) & 1 == 1
            this_pix = true
            pix_j += 1
        if ix != 0
            pix_l = false
-           if (mm[iy * mxw + Math.floor((ix - 1) / 8)] & (1 << ((ix - 1) % 8))) >> ((ix - 1) % 8) == 1
+           if (mm[iy * mxw + Math.floor((ix - 1) / 8)] >> ((ix - 1) % 8)) & 1 == 1
                pix_l = true
        if ix != myw - 1
            pix_r = false
-           if (mm[iy * mxw + Math.floor((ix + 1) / 8)] & (1 << ((ix + 1) % 8))) >> ((ix + 1) % 8) == 1
+           if (mm[iy * mxw + Math.floor((ix + 1) / 8)] >> ((ix + 1) % 8)) & 1 == 1
                pix_r = true
        if iy != 0
            pix_u = false
-           if (mm[(iy - 1) * mxw + Math.floor(ix / 8)] & (1 << (ix % 8))) >> (ix % 8) == 1
+           if (mm[(iy - 1) * mxw + Math.floor(ix / 8)] >> (ix % 8)) & 1 == 1
                pix_u = true
        if iy != myw - 1
            pix_d = false
-           if (mm[(iy + 1) * mxw + Math.floor(ix / 8)] & (1 << (ix % 8))) >> (ix % 8) == 1
+           if (mm[(iy + 1) * mxw + Math.floor(ix / 8)] >> (ix % 8)) & 1 == 1
                pix_d = true
        if ix != 0 and iy != 0
            pix_ul = false
-           if (mm[(iy - 1) * mxw + Math.floor((ix - 1) / 8)] & (1 << ((ix - 1) % 8))) >> ((ix - 1) % 8) == 1
+           if (mm[(iy - 1) * mxw + Math.floor((ix - 1) / 8)] >> ((ix - 1) % 8)) & 1 == 1
                pix_ul = true
        if ix != myw - 1 and iy != 0
            pix_ur = false
-           if (mm[(iy - 1) * mxw + Math.floor((ix + 1) / 8)] & (1 << ((ix + 1) % 8))) >> ((ix + 1) % 8) == 1
+           if (mm[(iy - 1) * mxw + Math.floor((ix + 1) / 8)] >> ((ix + 1) % 8)) & 1 == 1
                pix_ur = true
        if ix != 0 and iy != myw - 1
            pix_ll = false
-           if (mm[(iy + 1) * mxw + Math.floor((ix - 1) / 8)] & (1 << ((ix - 1) % 8))) >> ((ix - 1) % 8) == 1
+           if (mm[(iy + 1) * mxw + Math.floor((ix - 1) / 8)] >> ((ix - 1) % 8)) & 1 == 1
                pix_ll = true
        if ix != myw - 1 and iy != myw - 1
            pix_lr = false
-           if (mm[(iy + 1) * mxw + Math.floor((ix + 1) / 8)] & (1 << ((ix + 1) % 8))) >> ((ix + 1) % 8) == 1
+           if (mm[(iy + 1) * mxw + Math.floor((ix + 1) / 8)] >> ((ix + 1) % 8)) & 1 == 1
                pix_lr = true
        # lower right:
        if ix != myw - 1 and iy != myw - 1
@@ -279,8 +279,6 @@ polygonize = ->
                 if i0 - iy == size
                     going = 1
                     size += 1
-    for i in [0..mxw * myw - 1]
-        mm[i] = 0
     all_pol_done = false
     polygon = []
     while not all_pol_done
@@ -434,30 +432,45 @@ do_delineate = (p) ->
         url = get_url(latlng[0], latlng[1], true)
     if !save
         spinner.spin(spin_target)
+    if save
+        if sample_i == 0
+            for i in [0..mxw * myw - 1]
+                mm_back[i] = 0
+        else
+            for i in [0..mxw * myw - 1]
+                mm_back[i] = mm[i]
     outlet = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
-    mx = myw / 2 - 1
-    my = myw / 2 - 1
-    mx0_deg = x_deg - pix_deg * mx
-    my0_deg = y_deg + pix_deg * my
+    if save and sample_i > 0
+        mx = Math.round((x_deg - mx0_deg) / pix_deg)
+        my = Math.round((my0_deg - y_deg) / pix_deg)
+    else
+        mx = myw / 2 - 1
+        my = myw / 2 - 1
+        mx0_deg = x_deg - pix_deg * mx
+        my0_deg = y_deg + pix_deg * my
+        for i in [0..mxw * myw - 1]
+            mm[i] = 0
+    pix_i = 0
     neighbors_i = 0
     neighbors[0] = 255
-    for i in [0..mxw * myw - 1]
-        mm[i] = 0
     tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     tiles[0] = yield p_getTile(url)
     done = false
     skip = false
     pol_i = 0
-    pix_i = 0
     polygons = []
     polyLayers = []
     while !done
+        reached_upper_ws = false
         if !skip
             #addPixel()
-            mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
-            pix_i += 1
+            if save and (mm[my * mxw + Math.floor(mx / 8)] >> (mx % 8)) & 1 == 1
+                reached_upper_ws = true
+            else
+                mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
+                pix_i += 1
         nb = neighbors[neighbors_i]
-        if nb == 255
+        if !reached_upper_ws and nb == 255
             nb = 0
             for i in [0..7]
                 if i < 4
@@ -472,7 +485,7 @@ do_delineate = (p) ->
                 if dir_next == dir_back
                     nb = nb | (1 << i)
             neighbors[neighbors_i] = nb
-        if nb == 0
+        if reached_upper_ws or nb == 0
             if neighbors_i == 0
                 done = true
             else
@@ -515,6 +528,9 @@ do_delineate = (p) ->
         if done
             if !save
                 spinner.stop()
+            else
+                for i in [0..mxw * myw - 1]
+                    mm[i] = mm[i] & ~mm_back[i]
             polygonize()
             watershed.properties = {
                 "fill": "#6BC65F",
@@ -524,22 +540,18 @@ do_delineate = (p) ->
             if save
                 if sample_i == 0
                     sample_cb = cb
-                    this_watershed = watershed
                     watersheds = []
                 else
-                    this_watershed = turf.erase(watershed, last_watershed)
                     map.removeLayer(watershedLayer)
-                watersheds.push(this_watershed)
+                watersheds.push(watershed)
                 sample_i += 1
                 if sample_i < samples.length
-                    watershedLayer = L.mapbox.featureLayer(this_watershed).addTo(map)
-                    last_watershed = watershed
+                    watershedLayer = L.mapbox.featureLayer(watershed).addTo(map)
                     sample_cb()
                 else
                     spinner.stop()
                     watersheds = turf.featurecollection(watersheds)
                     watershedLayer = L.mapbox.featureLayer(watersheds).addTo(map)
-                    console.log watersheds
                     watershedLayer.on('click', (e) ->
                         url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watersheds))
                         link = document.createElement('a')

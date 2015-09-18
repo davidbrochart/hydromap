@@ -16,8 +16,10 @@ addLayer = (layer, name, zIndex) ->
             this.className = 'active'
     layers.appendChild(link)
 
+accDelta = 1000
 pix_deg = 0.0083333333333
-tiles = 0
+dir_tiles = 0
+acc_tiles = 0
 x_deg = 0
 y_deg = 0
 x = 0
@@ -37,13 +39,11 @@ mx1 = new Uint16Array(nbline_max)
 my0 = new Uint16Array(nbline_max)
 my1 = new Uint16Array(nbline_max)
 # <- output mask
-outlet = 0
 state = 0
-sources = 0
-source_i = 0
 neighbors_memsize = 1024
 neighbors_i = 0
-neighbors = new Uint8Array(neighbors_memsize)
+dirNeighbors = new Uint8Array(neighbors_memsize)
+accNeighbors = new Int32Array(neighbors_memsize)
 tile_width = 1200
 polygons = 0
 polyLayers = 0
@@ -93,16 +93,6 @@ runGen = (g, p) ->
         else
             ret.value.then(iterate)
     return res
-
-#addPixel = ->
-#    mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
-#    if mx == 0 or mx == myw - 1 or my == 0 or my == myw - 1
-#        polygonize()
-#        mx0_deg = x_deg - pix_deg * myw / 2
-#        my0_deg = y_deg + pix_deg * myw / 2
-#        mx = myw / 2
-#        my = myw / 2
-#    return
 
 polygonize = ->
     console.log 'polygonize'
@@ -357,41 +347,6 @@ polygonize = ->
                             polygon[i] = 0
                             polygon[j] = erase
                             watershed = erase
-    ## polygon packing:
-    #for i in [0..polygon.length - 1]
-    #    polygon[i] = turf.polygon([polygon[i]])
-    #polygons[pol_i % pack_size] = turf.merge(turf.featurecollection(polygon))
-    #polygons[pol_i % pack_size].properties = {
-    #    "fill": "#6BC65F",
-    #    "stroke": "#6BC65F",
-    #    "stroke-width": 1
-    #}
-    #polyLayers[pol_i % pack_size] = L.mapbox.featureLayer(polygons[pol_i % pack_size]).addTo(map)
-    #done_packing = false
-    #pol_i += 1
-    #i = pol_i
-    #level = 1
-    #while !done_packing
-    #    console.log 'Current level is ', level
-    #    if i % pack_size == 0
-    #        polygons[level * pack_size + (i / pack_size - 1) % pack_size] = turf.merge(turf.featurecollection(polygons[(level * pack_size - pack_size)..(level * pack_size - 1)]))
-    #        polygons[level * pack_size + (i / pack_size - 1) % pack_size].properties = {
-    #            "fill": "#6BC65F",
-    #            "stroke": "#6BC65F",
-    #            "stroke-width": 1
-    #        }
-    #        polyLayers[pack_size + level * pack_size + (i / pack_size - 1) % pack_size - pack_size] = L.mapbox.featureLayer(polygons[level * pack_size + (i / pack_size - 1) % pack_size]).addTo(map)
-    #        console.log 'Added polygon at ' + (level * pack_size + (i / pack_size - 1) % pack_size - pack_size) + ', level = ' + level
-    #        for k in [(level * pack_size - pack_size)..(level * pack_size - 1)]
-    #            polygons[k] = 0
-    #            if true#level > 1
-    #                if polyLayers[k]?
-    #                    console.log 'Removed polygon at ' + k + ', level = ' + level
-    #                    map.removeLayer(polyLayers[k])
-    #        i /= pack_size
-    #        level += 1
-    #    else
-    #        done_packing = true
     return
 
 extend_lineBuffer = ->
@@ -412,7 +367,7 @@ extend_lineBuffer = ->
     my1 = new_my1
     nbline_max = new_size
 
-getTile = (url, cb) ->
+getTile = (url, type, cb) ->
     console.log 'Downloading ' + url
     req = new XMLHttpRequest()
     req.open 'GET', url, true
@@ -421,17 +376,20 @@ getTile = (url, cb) ->
         arrayBuffer = req.response
         if arrayBuffer
             console.log 'Done!'
-            cb(new Uint8Array(arrayBuffer))
+            if type == 'dir'
+                cb(new Uint8Array(arrayBuffer))
+            else if type == 'acc'
+                cb(new Int32Array(arrayBuffer))
     req.send(null)
     return
 
 do_delineate = (p) ->
     latlng = p
     if state == 'wsOnStr'
-        url = get_url(samples[sample_i][0], samples[sample_i][1], true)['dir']
+        url = get_url(samples[sample_i][0], samples[sample_i][1], true)
     else
-        url = get_url(latlng[0], latlng[1], true)['dir']
-    if state == 'watershed'
+        url = get_url(latlng[0], latlng[1], true)
+    if state == 'watershed' or state == 'subWs'
         spinner.spin(spin_target)
     if state == 'wsOnStr'
         if sample_i == 0
@@ -440,8 +398,6 @@ do_delineate = (p) ->
         else
             for i in [0..mxw * myw - 1]
                 mm_back[i] = mm[i]
-    if state == 'getSources'
-        outlet = [x_deg + pix_deg / 2, y_deg - pix_deg / 2]
     this_outlet = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
     if state == 'wsOnStr' and sample_i > 0
         mx = Math.round((x_deg - mx0_deg) / pix_deg)
@@ -454,27 +410,51 @@ do_delineate = (p) ->
         for i in [0..mxw * myw - 1]
             mm[i] = 0
     pix_i = 0
-    sources = []
     neighbors_i = 0
-    neighbors[0] = 255
-    tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-    tiles[0] = yield p_getTile(url)
+    dirNeighbors[0] = 255 # 255 is for uninitialized
+    accNeighbors[0] = 0
+    dir_tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    acc_tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    dir_tiles[0] = yield p_getTile(url['dir'], 'dir')
+    if state == 'subWs'
+        acc_tiles[0] = yield p_getTile(url['acc'], 'acc')
+        acc = acc_tiles[0][y * tile_width + x]
     done = false
     skip = false
     pol_i = 0
     polygons = []
     polyLayers = []
+    if state == 'subWs'
+        this_subOutlet = turf.polygon([[[x_deg, y_deg], [x_deg + pix_deg, y_deg], [x_deg + pix_deg, y_deg - pix_deg], [x_deg, y_deg - pix_deg], [x_deg, y_deg]]])
+        this_subOutlet.properties = {
+            "fill": "#bd0026",
+            "stroke": "#bd0026",
+            "stroke-width": 3
+        }
+        subOutletLayer = L.mapbox.featureLayer(this_subOutlet).addTo(map)
     while !done
         reached_upper_ws = false
         if !skip
-            #addPixel()
-            if state == 'wsOnStr' and (mm[my * mxw + Math.floor(mx / 8)] >> (mx % 8)) & 1 == 1
+            if state == 'wsOnStr' and (mm[my * mxw + Math.floor(mx / 8)] >> (mx % 8)) & 1 == 1 # we reached the upper sub-watershed
                 reached_upper_ws = true
-            else if state != 'getSources'
+            else
                 mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
                 pix_i += 1
-        nb = neighbors[neighbors_i]
+                if state == 'subWs'
+                    this_acc = acc_tiles[0][y * tile_width + x]
+                    this_accDelta = acc - this_acc
+                    if this_accDelta >= accDelta and this_acc >= accDelta
+                        acc = this_acc
+                        this_subOutlet = turf.polygon([[[x_deg, y_deg], [x_deg + pix_deg, y_deg], [x_deg + pix_deg, y_deg - pix_deg], [x_deg, y_deg - pix_deg], [x_deg, y_deg]]])
+                        this_subOutlet.properties = {
+                            "fill": "#bd0026",
+                            "stroke": "#bd0026",
+                            "stroke-width": 3
+                        }
+                        subOutletLayer = L.mapbox.featureLayer(this_subOutlet).addTo(map)
+        nb = dirNeighbors[neighbors_i]
         if !reached_upper_ws and nb == 255
+            # find which pixels flow into this pixel
             nb = 0
             for i in [0..7]
                 if i < 4
@@ -482,28 +462,30 @@ do_delineate = (p) ->
                 else
                     dir_back = 1 << (i - 4)
                 ret = go_get_dir(1 << i, false, true)
-                if ret['url'] != ''
-                    this_tile = yield p_getTile(ret['url'])
-                    ret = go_get_dir(1 << i, false, false, this_tile)
+                if ret['url'] != 0 # we need to download a tile
+                    dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
+                    if state == 'subWs'
+                        acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
+                    ret = go_get_dir(1 << i, false, false, dir_tile, acc_tile)
                 dir_next = ret['dir']
                 if dir_next == dir_back
                     nb = nb | (1 << i)
-            neighbors[neighbors_i] = nb
-        if reached_upper_ws or nb == 0
-            sources.push([y_deg - pix_deg / 2, x_deg + pix_deg / 2])
-            if neighbors_i == 0
+            dirNeighbors[neighbors_i] = nb
+            accNeighbors[neighbors_i] = acc
+        if reached_upper_ws or nb == 0 # no pixel flows into this pixel (this is a source), so we cannot go upper
+            if neighbors_i == 0 # we are at the outlet and we processed every neighbor pixels, so we are done
                 done = true
             else
                 go_down = true
                 while go_down
-                    ret = go_get_dir(tiles[0][y * tile_width + x], true, true)
-                    if ret['url'] != ''
-                        this_tile = yield p_getTile(ret['url'])
-                        ret = go_get_dir(tiles[0][y * tile_width + x], true, false, this_tile)
+                    ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, true)
+                    if ret['url'] != 0 # we need to download a tile
+                        dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
+                        if state == 'subWs'
+                            acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
+                        ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, false, dir_tile, acc_tile)
                     neighbors_i -= 1
-                    if neighbors_i < 0
-                        console.log 'neighbors_i < 0'
-                    nb = neighbors[neighbors_i]
+                    nb = dirNeighbors[neighbors_i]
                     i = find1(nb)
                     nb = nb & (255 - (1 << i))
                     if nb == 0
@@ -513,41 +495,45 @@ do_delineate = (p) ->
                     else
                         go_down = false
                         skip = true
-                    neighbors[neighbors_i] = nb
-        else
+                    dirNeighbors[neighbors_i] = nb
+                acc = accNeighbors[neighbors_i]
+        else # go up
             skip = false
             neighbors_i += 1
             if neighbors_i == neighbors_memsize
                 console.log 'Extending neighbors'
                 neighbors_new = new Uint8Array(neighbors_memsize * 2)
                 for i in [0..neighbors_memsize - 1]
-                    neighbors_new[i] = neighbors[i]
-                neighbors = neighbors_new
+                    neighbors_new[i] = dirNeighbors[i]
+                dirNeighbors = neighbors_new
+                neighbors_new = new Int32Array(neighbors_memsize * 2)
+                for i in [0..neighbors_memsize - 1]
+                    neighbors_new[i] = accNeighbors[i]
+                accNeighbors = neighbors_new
                 neighbors_memsize *= 2
-            neighbors[neighbors_i] = 255
+            dirNeighbors[neighbors_i] = 255
+            accNeighbors[neighbors_i] = 0
             i = find1(nb)
             ret = go_get_dir(1 << i, true, true)
-            if ret['url'] != ''
-                this_tile = yield p_getTile(ret['url'])
-                ret = go_get_dir(1 << i, true, false, this_tile)
+            if ret['url'] != 0 # we need to download a tile
+                dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
+                if state == 'subWs'
+                    acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
+                ret = go_get_dir(1 << i, true, false, dir_tile, acc_tile)
         if done
             if state == 'watershed'
                 spinner.stop()
             else if state == 'wsOnStr'
                 for i in [0..mxw * myw - 1]
                     mm[i] = mm[i] & ~mm_back[i]
-            if state == 'getSources'
-                if sources.length > 1
-                    source_i = 0
-                    state = 'srcStr'
-                    runGen(do_stream)
-            else
-                polygonize()
-                watershed.properties = {
-                    "fill": "#6BC65F",
-                    "stroke": "#6BC65F",
-                    "stroke-width": 1
-                }
+            polygonize()
+            watershed.properties = {
+                "fill": "#6BC65F",
+                "stroke": "#6BC65F",
+                "stroke-width": 1
+            }
+            if state == 'subWs'
+                spinner.stop()
             if state == 'wsOnStr'
                 if sample_i == 0
                     watersheds = []
@@ -586,31 +572,26 @@ do_delineate = (p) ->
     return
 
 do_stream = (p) ->
-    if state == 'srcStr'
-        latlng = sources[source_i]
-    else
-        latlng = p
-    url = get_url(latlng[0], latlng[1], true)['dir']
-    if state != 'srcStr'
-        spinner.spin(spin_target)
+    console.log 'do_stream'
+    console.log 'state = ' + state
+    latlng = p
+    url = get_url(latlng[0], latlng[1], true)
     source = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
-    tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-    tiles[0] = yield p_getTile(url)
+    dir_tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    dir_tiles[0] = yield p_getTile(url['dir'], 'dir')
     stream = [[x_deg + pix_deg / 2, y_deg - pix_deg / 2]]
     done = false
     while !done
         x_deg_keep = x_deg
         y_deg_keep = y_deg
-        ret = go_get_dir(tiles[0][y * tile_width + x], true, true)
-        if ret['url'] != ''
-            this_tile = yield p_getTile(ret['url'])
-            ret = go_get_dir(tiles[0][y * tile_width + x], true, false, this_tile)
+        ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, true)
+        if ret['url'] != 0
+            dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
+            ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, false, dir_tile)
         if x_deg == x_deg_keep and y_deg == y_deg_keep
             done = true
         else
             stream.push([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
-        if (outlet[0] + pix_deg / 4 > x_deg + pix_deg / 2 > outlet[0] - pix_deg / 4) and (outlet[1] + pix_deg / 4 > y_deg - pix_deg / 2 > outlet[1] - pix_deg / 4)
-            done = true
     stream = turf.linestring(stream)
     if state == 'stream'
         spinner.stop()
@@ -644,12 +625,6 @@ do_stream = (p) ->
                 done = true
         sample_i = 0
         runGen(do_delineate)
-    if state == 'srcStr'
-        source_i += 1
-        if source_i < sources.length
-            runGen(do_stream)
-        else
-            spinner.stop()
     return
 
 find1 = (a) ->
@@ -659,9 +634,9 @@ find1 = (a) ->
         i += 1
     return i
 
-go_get_dir = (dir, go, first, this_tile) ->
+go_get_dir = (dir, go, first, dir_tile, acc_tile) ->
     ret = []
-    ret['url'] = ''
+    ret['url'] = 0
     x_next = x
     y_next = y
     mx_next = mx
@@ -697,207 +672,295 @@ go_get_dir = (dir, go, first, this_tile) ->
         x_next = tile_width - 1
         y_next = tile_width - 1
         if go
-            if tiles[6] == 0
+            if dir_tiles[6] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[6] = this_tile
-            if ret['url'] == ''
-                tiles[1] = tiles[7]
-                tiles[2] = tiles[0]
-                tiles[3] = tiles[5]
-                tiles[0] = tiles[6]
-                tiles[4] = 0
-                tiles[5] = 0
-                tiles[6] = 0
-                tiles[7] = 0
-                tiles[8] = 0
+                    dir_tiles[6] = dir_tile
+                    acc_tiles[6] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[1] = dir_tiles[7]
+                dir_tiles[2] = dir_tiles[0]
+                dir_tiles[3] = dir_tiles[5]
+                dir_tiles[0] = dir_tiles[6]
+                dir_tiles[4] = 0
+                dir_tiles[5] = 0
+                dir_tiles[6] = 0
+                dir_tiles[7] = 0
+                dir_tiles[8] = 0
+                acc_tiles[1] = acc_tiles[7]
+                acc_tiles[2] = acc_tiles[0]
+                acc_tiles[3] = acc_tiles[5]
+                acc_tiles[0] = acc_tiles[6]
+                acc_tiles[4] = 0
+                acc_tiles[5] = 0
+                acc_tiles[6] = 0
+                acc_tiles[7] = 0
+                acc_tiles[8] = 0
         else
             tile_i = 6
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if x_next == tile_width and y_next == -1
         x_next = 0
         y_next = tile_width - 1
         if go
-            if tiles[8] == 0
+            if dir_tiles[8] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[8] = this_tile
-            if ret['url'] == ''
-                tiles[3] = tiles[1]
-                tiles[4] = tiles[0]
-                tiles[5] = tiles[7]
-                tiles[0] = tiles[8]
-                tiles[2] = 0
-                tiles[1] = 0
-                tiles[8] = 0
-                tiles[7] = 0
-                tiles[6] = 0
+                    dir_tiles[8] = dir_tile
+                    acc_tiles[8] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[3] = dir_tiles[1]
+                dir_tiles[4] = dir_tiles[0]
+                dir_tiles[5] = dir_tiles[7]
+                dir_tiles[0] = dir_tiles[8]
+                dir_tiles[2] = 0
+                dir_tiles[1] = 0
+                dir_tiles[8] = 0
+                dir_tiles[7] = 0
+                dir_tiles[6] = 0
+                acc_tiles[3] = acc_tiles[1]
+                acc_tiles[4] = acc_tiles[0]
+                acc_tiles[5] = acc_tiles[7]
+                acc_tiles[0] = acc_tiles[8]
+                acc_tiles[2] = 0
+                acc_tiles[1] = 0
+                acc_tiles[8] = 0
+                acc_tiles[7] = 0
+                acc_tiles[6] = 0
         else
             tile_i = 8
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if x_next == tile_width and y_next == tile_width
         x_next = 0
         y_next = 0
         if go
-            if tiles[2] == 0
+            if dir_tiles[2] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[2] = this_tile
-            if ret['url'] == ''
-                tiles[5] = tiles[3]
-                tiles[6] = tiles[0]
-                tiles[7] = tiles[1]
-                tiles[0] = tiles[2]
-                tiles[4] = 0
-                tiles[3] = 0
-                tiles[2] = 0
-                tiles[1] = 0
-                tiles[8] = 0
+                    dir_tiles[2] = dir_tile
+                    acc_tiles[2] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[5] = dir_tiles[3]
+                dir_tiles[6] = dir_tiles[0]
+                dir_tiles[7] = dir_tiles[1]
+                dir_tiles[0] = dir_tiles[2]
+                dir_tiles[4] = 0
+                dir_tiles[3] = 0
+                dir_tiles[2] = 0
+                dir_tiles[1] = 0
+                dir_tiles[8] = 0
+                acc_tiles[5] = acc_tiles[3]
+                acc_tiles[6] = acc_tiles[0]
+                acc_tiles[7] = acc_tiles[1]
+                acc_tiles[0] = acc_tiles[2]
+                acc_tiles[4] = 0
+                acc_tiles[3] = 0
+                acc_tiles[2] = 0
+                acc_tiles[1] = 0
+                acc_tiles[8] = 0
         else
             tile_i = 2
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if x_next == -1 and y_next == tile_width
         x_next = tile_width - 1
         y_next = 0
         if go
-            if tiles[4] == 0
+            if dir_tiles[4] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[4] = this_tile
-            if ret['url'] == ''
-                tiles[7] = tiles[5]
-                tiles[8] = tiles[0]
-                tiles[1] = tiles[3]
-                tiles[0] = tiles[4]
-                tiles[6] = 0
-                tiles[5] = 0
-                tiles[4] = 0
-                tiles[3] = 0
-                tiles[2] = 0
+                    dir_tiles[4] = dir_tile
+                    acc_tiles[4] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[7] = dir_tiles[5]
+                dir_tiles[8] = dir_tiles[0]
+                dir_tiles[1] = dir_tiles[3]
+                dir_tiles[0] = dir_tiles[4]
+                dir_tiles[6] = 0
+                dir_tiles[5] = 0
+                dir_tiles[4] = 0
+                dir_tiles[3] = 0
+                dir_tiles[2] = 0
+                acc_tiles[7] = acc_tiles[5]
+                acc_tiles[8] = acc_tiles[0]
+                acc_tiles[1] = acc_tiles[3]
+                acc_tiles[0] = acc_tiles[4]
+                acc_tiles[6] = 0
+                acc_tiles[5] = 0
+                acc_tiles[4] = 0
+                acc_tiles[3] = 0
+                acc_tiles[2] = 0
         else
             tile_i = 4
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if y_next == -1
         y_next = tile_width - 1
         if go
-            if tiles[7] == 0
+            if dir_tiles[7] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[7] = this_tile
-            if ret['url'] == ''
-                tiles[4] = tiles[5]
-                tiles[3] = tiles[0]
-                tiles[2] = tiles[1]
-                tiles[5] = tiles[6]
-                tiles[0] = tiles[7]
-                tiles[1] = tiles[8]
-                tiles[6] = 0
-                tiles[7] = 0
-                tiles[8] = 0
+                    dir_tiles[7] = dir_tile
+                    acc_tiles[7] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[4] = dir_tiles[5]
+                dir_tiles[3] = dir_tiles[0]
+                dir_tiles[2] = dir_tiles[1]
+                dir_tiles[5] = dir_tiles[6]
+                dir_tiles[0] = dir_tiles[7]
+                dir_tiles[1] = dir_tiles[8]
+                dir_tiles[6] = 0
+                dir_tiles[7] = 0
+                dir_tiles[8] = 0
+                acc_tiles[4] = acc_tiles[5]
+                acc_tiles[3] = acc_tiles[0]
+                acc_tiles[2] = acc_tiles[1]
+                acc_tiles[5] = acc_tiles[6]
+                acc_tiles[0] = acc_tiles[7]
+                acc_tiles[1] = acc_tiles[8]
+                acc_tiles[6] = 0
+                acc_tiles[7] = 0
+                acc_tiles[8] = 0
         else
             tile_i = 7
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if x_next == tile_width
         x_next = 0
         if go
-            if tiles[1] == 0
+            if dir_tiles[1] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[1] = this_tile
-            if ret['url'] == ''
-                tiles[6] = tiles[7]
-                tiles[5] = tiles[0]
-                tiles[4] = tiles[3]
-                tiles[7] = tiles[8]
-                tiles[0] = tiles[1]
-                tiles[3] = tiles[2]
-                tiles[8] = 0
-                tiles[1] = 0
-                tiles[2] = 0
+                    dir_tiles[1] = dir_tile
+                    acc_tiles[1] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[6] = dir_tiles[7]
+                dir_tiles[5] = dir_tiles[0]
+                dir_tiles[4] = dir_tiles[3]
+                dir_tiles[7] = dir_tiles[8]
+                dir_tiles[0] = dir_tiles[1]
+                dir_tiles[3] = dir_tiles[2]
+                dir_tiles[8] = 0
+                dir_tiles[1] = 0
+                dir_tiles[2] = 0
+                acc_tiles[6] = acc_tiles[7]
+                acc_tiles[5] = acc_tiles[0]
+                acc_tiles[4] = acc_tiles[3]
+                acc_tiles[7] = acc_tiles[8]
+                acc_tiles[0] = acc_tiles[1]
+                acc_tiles[3] = acc_tiles[2]
+                acc_tiles[8] = 0
+                acc_tiles[1] = 0
+                acc_tiles[2] = 0
         else
             tile_i = 1
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if y_next == tile_width
         y_next = 0
         if go
-            if tiles[3] == 0
+            if dir_tiles[3] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[3] = this_tile
-            if ret['url'] == ''
-                tiles[6] = tiles[5]
-                tiles[7] = tiles[0]
-                tiles[8] = tiles[1]
-                tiles[5] = tiles[4]
-                tiles[0] = tiles[3]
-                tiles[1] = tiles[2]
-                tiles[4] = 0
-                tiles[3] = 0
-                tiles[2] = 0
+                    dir_tiles[3] = dir_tile
+                    acc_tiles[3] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[6] = dir_tiles[5]
+                dir_tiles[7] = dir_tiles[0]
+                dir_tiles[8] = dir_tiles[1]
+                dir_tiles[5] = dir_tiles[4]
+                dir_tiles[0] = dir_tiles[3]
+                dir_tiles[1] = dir_tiles[2]
+                dir_tiles[4] = 0
+                dir_tiles[3] = 0
+                dir_tiles[2] = 0
+                acc_tiles[6] = acc_tiles[5]
+                acc_tiles[7] = acc_tiles[0]
+                acc_tiles[8] = acc_tiles[1]
+                acc_tiles[5] = acc_tiles[4]
+                acc_tiles[0] = acc_tiles[3]
+                acc_tiles[1] = acc_tiles[2]
+                acc_tiles[4] = 0
+                acc_tiles[3] = 0
+                acc_tiles[2] = 0
         else
             tile_i = 3
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
     else if x_next == -1
         x_next = tile_width - 1
         if go
-            if tiles[5] == 0
+            if dir_tiles[5] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[5] = this_tile
-            if ret['url'] == ''
-                tiles[8] = tiles[7]
-                tiles[1] = tiles[0]
-                tiles[2] = tiles[3]
-                tiles[7] = tiles[6]
-                tiles[0] = tiles[5]
-                tiles[3] = tiles[4]
-                tiles[6] = 0
-                tiles[5] = 0
-                tiles[4] = 0
+                    dir_tiles[5] = dir_tile
+                    acc_tiles[5] = acc_tile
+            if ret['url'] == 0
+                dir_tiles[8] = dir_tiles[7]
+                dir_tiles[1] = dir_tiles[0]
+                dir_tiles[2] = dir_tiles[3]
+                dir_tiles[7] = dir_tiles[6]
+                dir_tiles[0] = dir_tiles[5]
+                dir_tiles[3] = dir_tiles[4]
+                dir_tiles[6] = 0
+                dir_tiles[5] = 0
+                dir_tiles[4] = 0
+                acc_tiles[8] = acc_tiles[7]
+                acc_tiles[1] = acc_tiles[0]
+                acc_tiles[2] = acc_tiles[3]
+                acc_tiles[7] = acc_tiles[6]
+                acc_tiles[0] = acc_tiles[5]
+                acc_tiles[3] = acc_tiles[4]
+                acc_tiles[6] = 0
+                acc_tiles[5] = 0
+                acc_tiles[4] = 0
         else
             tile_i = 5
-            if tiles[tile_i] == 0
+            if dir_tiles[tile_i] == 0
                 if first
-                    ret['url'] = get_url(y_deg_next, x_deg_next, false)['dir']
+                    ret['url'] = get_url(y_deg_next, x_deg_next, false)
                 else
-                    tiles[tile_i] = this_tile
-    if ret['url'] == ''
+                    dir_tiles[tile_i] = dir_tile
+                    acc_tiles[tile_i] = acc_tile
+    if ret['url'] == 0
         if go
             x = x_next
             y = y_next
@@ -905,7 +968,9 @@ go_get_dir = (dir, go, first, this_tile) ->
             y_deg = y_deg_next
             mx = mx_next
             my = my_next
-        ret['dir'] = tiles[tile_i][y_next * tile_width + x_next]
+        ret['dir'] = dir_tiles[tile_i][y_next * tile_width + x_next]
+        if acc_tiles[tile_i]? and acc_tiles[tile_i] != 0
+            ret['acc'] = acc_tiles[tile_i][y_next * tile_width + x_next]
     return ret
 
 p_wait = (ms) ->
@@ -914,9 +979,9 @@ p_wait = (ms) ->
         return
     )
 
-p_getTile = (url) ->
+p_getTile = (url, type) ->
     return new Promise((resolve, reject) ->
-        getTile(url, resolve)
+        getTile(url, type, resolve)
         return
     )
 
@@ -1660,7 +1725,7 @@ map = L.mapbox.map('map', 'examples.map-2k9d7u0c', {
     }, {
         text: 'Show sub-watersheds',
         callback: (e) ->
-            state = 'getSources'
+            state = 'subWs'
             runGen(do_delineate, [e.latlng.lat, e.latlng.lng])
     }
     ]}).setView([-10, -60], 5)

@@ -16,10 +16,11 @@ addLayer = (layer, name, zIndex) ->
             this.className = 'active'
     layers.appendChild(link)
 
+click_url = 0
 accDelta = 1000
 pix_deg = 0.0083333333333
 dir_tiles = 0
-acc_tiles = 0
+acc_tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 x_deg = 0
 y_deg = 0
 x = 0
@@ -385,21 +386,21 @@ getTile = (url, type, cb) ->
 
 do_delineate = (p) ->
     latlng = p
-    if state == 'wsOnStr'
+    if state == 'deliSubBas'
         url = get_url(samples[sample_i][0], samples[sample_i][1], true)
     else
         url = get_url(latlng[0], latlng[1], true)
-    if state == 'watershed' or state == 'subWs'
+    if state == 'watershed' or state == 'getSubBas'
         spinner.spin(spin_target)
-    if state == 'wsOnStr'
+    if state == 'deliSubBas'
         if sample_i == 0
             for i in [0..mxw * myw - 1]
                 mm_back[i] = 0
         else
             for i in [0..mxw * myw - 1]
-                mm_back[i] = mm[i]
+                mm_back[i] |= mm[i]
     this_outlet = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
-    if state == 'wsOnStr' and sample_i > 0
+    if state == 'deliSubBas' and sample_i > 0
         mx = Math.round((x_deg - mx0_deg) / pix_deg)
         my = Math.round((my0_deg - y_deg) / pix_deg)
     else
@@ -416,7 +417,7 @@ do_delineate = (p) ->
     dir_tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     acc_tiles = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     dir_tiles[0] = yield p_getTile(url['dir'], 'dir')
-    if state == 'subWs'
+    if state == 'getSubBas'
         acc_tiles[0] = yield p_getTile(url['acc'], 'acc')
         acc = acc_tiles[0][y * tile_width + x]
     done = false
@@ -424,34 +425,22 @@ do_delineate = (p) ->
     pol_i = 0
     polygons = []
     polyLayers = []
-    if state == 'subWs'
-        this_subOutlet = turf.polygon([[[x_deg, y_deg], [x_deg + pix_deg, y_deg], [x_deg + pix_deg, y_deg - pix_deg], [x_deg, y_deg - pix_deg], [x_deg, y_deg]]])
-        this_subOutlet.properties = {
-            "fill": "#bd0026",
-            "stroke": "#bd0026",
-            "stroke-width": 3
-        }
-        subOutletLayer = L.mapbox.featureLayer(this_subOutlet).addTo(map)
+    if state == 'getSubBas'
+        samples = [[y_deg - pix_deg / 2, x_deg + pix_deg / 2]]
     while !done
         reached_upper_ws = false
         if !skip
-            if state == 'wsOnStr' and (mm[my * mxw + Math.floor(mx / 8)] >> (mx % 8)) & 1 == 1 # we reached the upper sub-watershed
+            if state == 'deliSubBas' and (mm_back[my * mxw + Math.floor(mx / 8)] >> (mx % 8)) & 1 == 1 # we reached the upper sub-watershed
                 reached_upper_ws = true
             else
                 mm[my * mxw + Math.floor(mx / 8)] |= 1 << (mx % 8)
                 pix_i += 1
-                if state == 'subWs'
+                if state == 'getSubBas'
                     this_acc = acc_tiles[0][y * tile_width + x]
                     this_accDelta = acc - this_acc
                     if this_accDelta >= accDelta and this_acc >= accDelta
                         acc = this_acc
-                        this_subOutlet = turf.polygon([[[x_deg, y_deg], [x_deg + pix_deg, y_deg], [x_deg + pix_deg, y_deg - pix_deg], [x_deg, y_deg - pix_deg], [x_deg, y_deg]]])
-                        this_subOutlet.properties = {
-                            "fill": "#bd0026",
-                            "stroke": "#bd0026",
-                            "stroke-width": 3
-                        }
-                        subOutletLayer = L.mapbox.featureLayer(this_subOutlet).addTo(map)
+                        samples.push([y_deg - pix_deg / 2, x_deg + pix_deg / 2])
         nb = dirNeighbors[neighbors_i]
         if !reached_upper_ws and nb == 255
             # find which pixels flow into this pixel
@@ -464,7 +453,7 @@ do_delineate = (p) ->
                 ret = go_get_dir(1 << i, false, true)
                 if ret['url'] != 0 # we need to download a tile
                     dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
-                    if state == 'subWs'
+                    if state == 'getSubBas'
                         acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
                     ret = go_get_dir(1 << i, false, false, dir_tile, acc_tile)
                 dir_next = ret['dir']
@@ -481,7 +470,7 @@ do_delineate = (p) ->
                     ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, true)
                     if ret['url'] != 0 # we need to download a tile
                         dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
-                        if state == 'subWs'
+                        if state == 'getSubBas'
                             acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
                         ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, false, dir_tile, acc_tile)
                     neighbors_i -= 1
@@ -517,24 +506,23 @@ do_delineate = (p) ->
             ret = go_get_dir(1 << i, true, true)
             if ret['url'] != 0 # we need to download a tile
                 dir_tile = yield p_getTile(ret['url']['dir'], 'dir')
-                if state == 'subWs'
+                if state == 'getSubBas'
                     acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
                 ret = go_get_dir(1 << i, true, false, dir_tile, acc_tile)
         if done
             if state == 'watershed'
                 spinner.stop()
-            else if state == 'wsOnStr'
+            else if state == 'deliSubBas'
                 for i in [0..mxw * myw - 1]
                     mm[i] = mm[i] & ~mm_back[i]
-            polygonize()
-            watershed.properties = {
-                "fill": "#6BC65F",
-                "stroke": "#6BC65F",
-                "stroke-width": 1
-            }
-            if state == 'subWs'
-                spinner.stop()
-            if state == 'wsOnStr'
+            if state != 'getSubBas'
+                polygonize()
+                watershed.properties = {
+                    "fill": "#6BC65F",
+                    "stroke": "#6BC65F",
+                    "stroke-width": 1
+                }
+            if state == 'deliSubBas'
                 if sample_i == 0
                     watersheds = []
                 else
@@ -569,11 +557,20 @@ do_delineate = (p) ->
                         link.click()
                         alert('Watershed GeoJSON downloaded')
                     )
+            if state == 'getSubBas'
+                # we need to reverse the samples (incremental delineation must go downstream)
+                samples_rev = []
+                for i in [0..samples.length - 1]
+                    samples_rev.push(samples[samples.length - 1 - i])
+                samples = samples_rev
+                state = 'deliSubBas'
+                sample_i = 0
+                runGen(do_delineate)
     return
 
 do_stream = (p) ->
-    console.log 'do_stream'
-    console.log 'state = ' + state
+    if state == 'stream'
+        spinner.spin(spin_target)
     latlng = p
     url = get_url(latlng[0], latlng[1], true)
     source = turf.point([x_deg + pix_deg / 2, y_deg - pix_deg / 2])
@@ -613,7 +610,7 @@ do_stream = (p) ->
             link.click()
             alert('Stream GeoJSON downloaded')
     )
-    if state == 'wsOnStr'
+    if state == 'getSubBas'
         samples = []
         i = 0
         done = false
@@ -624,6 +621,7 @@ do_stream = (p) ->
             else
                 done = true
         sample_i = 0
+        state = 'deliSubBas'
         runGen(do_delineate)
     return
 
@@ -1720,19 +1718,35 @@ map = L.mapbox.map('map', 'examples.map-2k9d7u0c', {
     }, '-', {
         text: 'Show watersheds along stream',
         callback: (e) ->
-            state = 'wsOnStr'
+            state = 'getSubBas'
             runGen(do_stream, [e.latlng.lat, e.latlng.lng])
     }, {
         text: 'Show sub-watersheds',
         callback: (e) ->
-            state = 'subWs'
+            state = 'getSubBas'
             runGen(do_delineate, [e.latlng.lat, e.latlng.lng])
     }
     ]}).setView([-10, -60], 5)
 
-map.on('click', (e) ->
-    alert('LatLon = ' + round(e.latlng.lat, 3) + ', ' + round(e.latlng.lng, 3))
+map.on('mousemove', (e) ->
+    lat = round(e.latlng.lat, 3).toString()
+    lng = round(e.latlng.lng, 3).toString()
+    window['latlng'].innerHTML = lat + ', ' + lng
+    window['flowAcc'].innerHTML = ''
+)
+
+mapOnClick = (e) ->
+    url = get_url(e.latlng.lat, e.latlng.lng, true)['acc']
+    if url != click_url
+        spinner.spin(spin_target)
+        click_url = url
+        acc_tiles[0] = yield p_getTile(url, 'acc')
+        spinner.stop()
+    window['flowAcc'].innerHTML = acc_tiles[0][y * tile_width + x].toString()
     return
+
+map.on('click', (e) ->
+    runGen(mapOnClick, e)
 )
 
 layers = document.getElementById('menu-ui')

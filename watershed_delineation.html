@@ -13,6 +13,24 @@
 </style>
 </head>
 <body>
+
+<style>
+.ui-control {
+    background:#fff;
+    position:absolute;
+    top:50px;
+    right:10px;
+    padding:10px;
+    z-index:100;
+    border-radius:3px;
+}
+</style>
+
+<div id='output' class='ui-control'>
+    lat/lng: <code id='latlng'></code><br/>
+    Flow acc: <code id='flowAcc'></code><br/>
+</div>
+
 <div id='spin'></div>
 <script src='https://rawgit.com/davidbrochart/hydromap/master/js/turf.min.js'></script>
 <script src='https://rawgit.com/davidbrochart/hydromap/master/js/leaflet.contextmenu.js'></script>

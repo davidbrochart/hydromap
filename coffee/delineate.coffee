@@ -54,6 +54,7 @@ pack_size = 10
 watershed = 0
 watershedLayer = 0
 samples = []
+orders = 0
 sample_i = 0
 sample_nb = 50
 sample_cb = 0
@@ -420,13 +421,16 @@ do_delineate = (p) ->
     if state == 'getSubBas'
         acc_tiles[0] = yield p_getTile(url['acc'], 'acc')
         acc = acc_tiles[0][y * tile_width + x]
+        samples = [[y_deg - pix_deg / 2, x_deg + pix_deg / 2]]
+        sample_i = 0
+        orders = [[0]]
+        order_i = 0
+        new_order = 0
     done = false
     skip = false
     pol_i = 0
     polygons = []
     polyLayers = []
-    if state == 'getSubBas'
-        samples = [[y_deg - pix_deg / 2, x_deg + pix_deg / 2]]
     while !done
         reached_upper_ws = false
         if !skip
@@ -441,6 +445,14 @@ do_delineate = (p) ->
                     if this_accDelta >= accDelta and this_acc >= accDelta
                         acc = this_acc
                         samples.push([y_deg - pix_deg / 2, x_deg + pix_deg / 2])
+                        sample_i += 1
+                        this_order = []
+                        for i in orders[order_i]
+                            this_order.push(i)
+                        this_order.push(new_order)
+                        new_order = 0
+                        orders.push(this_order)
+                        order_i = orders.length - 1
         nb = dirNeighbors[neighbors_i]
         if !reached_upper_ws and nb == 255
             # find which pixels flow into this pixel
@@ -465,6 +477,7 @@ do_delineate = (p) ->
             if neighbors_i == 0 # we are at the outlet and we processed every neighbor pixels, so we are done
                 done = true
             else
+                past_ws = false
                 go_down = true
                 while go_down
                     ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, true)
@@ -473,6 +486,18 @@ do_delineate = (p) ->
                         if state == 'getSubBas'
                             acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
                         ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, false, dir_tile, acc_tile)
+                    if state == 'getSubBas'
+                        if past_ws # we just past a sub-basin
+                            new_order = orders[order_i][orders[order_i].length - 1] + 1
+                            this_length = orders[order_i].length
+                            while orders[order_i].length >= this_length
+                                order_i -= 1
+                            past_ws = false
+                        # check if we are at a sub-basin outlet
+                        y_down = samples[sample_i][0]
+                        x_down = samples[sample_i][1]
+                        if (y_down + pix_deg / 4 > y_deg - pix_deg / 2 > y_down - pix_deg / 4) and (x_down + pix_deg / 4 > x_deg + pix_deg / 2 > x_down - pix_deg / 4)
+                            past_ws = true
                     neighbors_i -= 1
                     nb = dirNeighbors[neighbors_i]
                     i = find1(nb)
@@ -527,6 +552,7 @@ do_delineate = (p) ->
                     watersheds = []
                 else
                     map.removeLayer(watershedLayer)
+                watershed.properties['order'] = orders[sample_i].toString()
                 watersheds.push(watershed)
                 sample_i += 1
                 if sample_i < samples.length
@@ -560,9 +586,12 @@ do_delineate = (p) ->
             if state == 'getSubBas'
                 # we need to reverse the samples (incremental delineation must go downstream)
                 samples_rev = []
+                orders_rev = []
                 for i in [0..samples.length - 1]
                     samples_rev.push(samples[samples.length - 1 - i])
+                    orders_rev.push(orders[samples.length - 1 - i])
                 samples = samples_rev
+                orders = orders_rev
                 state = 'deliSubBas'
                 sample_i = 0
                 runGen(do_delineate)

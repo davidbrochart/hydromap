@@ -477,7 +477,7 @@ do_delineate = (p) ->
             if neighbors_i == 0 # we are at the outlet and we processed every neighbor pixels, so we are done
                 done = true
             else
-                past_ws = false
+                passed_ws = false
                 go_down = true
                 while go_down
                     ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, true)
@@ -487,17 +487,18 @@ do_delineate = (p) ->
                             acc_tile = yield p_getTile(ret['url']['acc'], 'acc')
                         ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, false, dir_tile, acc_tile)
                     if state == 'getSubBas'
-                        if past_ws # we just past a sub-basin
-                            new_order = orders[order_i][orders[order_i].length - 1] + 1
-                            this_length = orders[order_i].length
+                        if passed_ws # we just passed a sub-basin
+                            this_order = orders[order_i]
+                            new_order = this_order[this_order.length - 1] + 1
+                            this_length = this_order.length
                             while orders[order_i].length >= this_length
                                 order_i -= 1
-                            past_ws = false
-                        # check if we are at a sub-basin outlet
-                        y_down = samples[sample_i][0]
-                        x_down = samples[sample_i][1]
+                            passed_ws = false
+                        # check if we are at a sub-basin outlet that we already passed
+                        y_down = samples[order_i][0]
+                        x_down = samples[order_i][1]
                         if (y_down + pix_deg / 4 > y_deg - pix_deg / 2 > y_down - pix_deg / 4) and (x_down + pix_deg / 4 > x_deg + pix_deg / 2 > x_down - pix_deg / 4)
-                            past_ws = true
+                            passed_ws = true
                     neighbors_i -= 1
                     nb = dirNeighbors[neighbors_i]
                     i = find1(nb)

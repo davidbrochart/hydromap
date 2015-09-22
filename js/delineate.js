@@ -509,7 +509,7 @@
   };
 
   do_delineate = function*(p) {
-    var acc, acc_tile, dir_back, dir_next, dir_tile, done, go_down, i, k, l, latlng, len, m, n, nb, neighbors_new, new_order, o, order_i, orders_rev, outletLayer, past_ws, q, r, reached_upper_ws, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, s, samples_rev, skip, t, this_acc, this_accDelta, this_length, this_order, this_outlet, url, x_down, y_down;
+    var acc, acc_tile, dir_back, dir_next, dir_tile, done, go_down, i, k, l, latlng, len, m, n, nb, neighbors_new, new_order, o, order_i, orders_rev, outletLayer, passed_ws, q, r, reached_upper_ws, ref, ref1, ref2, ref3, ref4, ref5, ref6, ref7, ref8, ref9, ret, s, samples_rev, skip, t, this_acc, this_accDelta, this_length, this_order, this_outlet, url, x_down, y_down;
     latlng = p;
     if (state === 'deliSubBas') {
       url = get_url(samples[sample_i][0], samples[sample_i][1], true);
@@ -622,7 +622,7 @@
         if (neighbors_i === 0) {
           done = true;
         } else {
-          past_ws = false;
+          passed_ws = false;
           go_down = true;
           while (go_down) {
             ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, true);
@@ -634,18 +634,19 @@
               ret = go_get_dir(dir_tiles[0][y * tile_width + x], true, false, dir_tile, acc_tile);
             }
             if (state === 'getSubBas') {
-              if (past_ws) {
-                new_order = orders[order_i][orders[order_i].length - 1] + 1;
-                this_length = orders[order_i].length;
+              if (passed_ws) {
+                this_order = orders[order_i];
+                new_order = this_order[this_order.length - 1] + 1;
+                this_length = this_order.length;
                 while (orders[order_i].length >= this_length) {
                   order_i -= 1;
                 }
-                past_ws = false;
+                passed_ws = false;
               }
-              y_down = samples[sample_i][0];
-              x_down = samples[sample_i][1];
+              y_down = samples[order_i][0];
+              x_down = samples[order_i][1];
               if (((y_down + pix_deg / 4 > (ref4 = y_deg - pix_deg / 2) && ref4 > y_down - pix_deg / 4)) && ((x_down + pix_deg / 4 > (ref5 = x_deg + pix_deg / 2) && ref5 > x_down - pix_deg / 4))) {
-                past_ws = true;
+                passed_ws = true;
               }
             }
             neighbors_i -= 1;

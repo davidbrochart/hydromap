@@ -143,80 +143,8 @@ polygonize = ->
            pix_lr = false
            if (mm[(iy + 1) * mxw + Math.floor((ix + 1) / 8)] >> ((ix + 1) % 8)) & 1 == 1
                pix_lr = true
-       # lower right:
-       if ix != myw - 1 and iy != myw - 1
-           if this_pix and not pix_r and pix_lr and not pix_ur
-               mx0[line_i] = 2 * ix + 2
-               mx1[line_i] = 2 * ix + 2 + 1
-               my0[line_i] = 2 * iy
-               my1[line_i] = 2 * iy + 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-           if this_pix and not pix_d and pix_lr and not pix_ll
-               mx0[line_i] = 2 * ix
-               mx1[line_i] = 2 * ix + 1
-               my0[line_i] = 2 * iy + 2
-               my1[line_i] = 2 * iy + 2 + 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-       # lower left:
-       if ix != 0 and iy != myw - 1
-           if this_pix and not pix_l and pix_ll and not pix_ul
-               mx0[line_i] = 2 * ix
-               mx1[line_i] = 2 * ix - 1
-               my0[line_i] = 2 * iy
-               my1[line_i] = 2 * iy + 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-           if this_pix and not pix_d and pix_ll and not pix_lr
-               mx0[line_i] = 2 * ix + 2
-               mx1[line_i] = 2 * ix + 1
-               my0[line_i] = 2 * iy + 2
-               my1[line_i] = 2 * iy + 2 + 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-       # upper left:
-       if ix != 0 and iy != 0
-           if this_pix and not pix_l and pix_ul and not pix_ll
-               mx0[line_i] = 2 * ix
-               mx1[line_i] = 2 * ix - 1
-               my0[line_i] = 2 * iy + 2
-               my1[line_i] = 2 * iy + 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-           if this_pix and not pix_u and pix_ul and not pix_ur
-               mx0[line_i] = 2 * ix + 2
-               mx1[line_i] = 2 * ix + 1
-               my0[line_i] = 2 * iy
-               my1[line_i] = 2 * iy - 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-       # upper right:
-       if ix != myw - 1 and iy != 0
-           if this_pix and not pix_u and pix_ur and not pix_ul
-               mx0[line_i] = 2 * ix
-               mx1[line_i] = 2 * ix + 1
-               my0[line_i] = 2 * iy
-               my1[line_i] = 2 * iy - 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
-           if this_pix and not pix_r and pix_ur and not pix_lr
-               mx0[line_i] = 2 * ix + 2
-               mx1[line_i] = 2 * ix + 2 + 1
-               my0[line_i] = 2 * iy + 2
-               my1[line_i] = 2 * iy + 1
-               line_i += 1
-               if line_i == nbline_max
-                   extend_lineBuffer()
        # left:
-       if (ix != 0 and this_pix and not pix_l and not pix_ul and not pix_ll) or (ix == 0 and this_pix)
+       if (ix != 0 and this_pix and not pix_l) or (ix == 0 and this_pix)
            mx0[line_i] = 2 * ix
            mx1[line_i] = 2 * ix
            my0[line_i] = 2 * iy
@@ -225,7 +153,7 @@ polygonize = ->
            if line_i == nbline_max
                extend_lineBuffer()
        # right:
-       if (ix != myw - 1 and this_pix and not pix_r and not pix_ur and not pix_lr) or (ix == myw - 1 and this_pix)
+       if (ix != myw - 1 and this_pix and not pix_r) or (ix == myw - 1 and this_pix)
            mx0[line_i] = 2 * ix + 2
            mx1[line_i] = 2 * ix + 2
            my0[line_i] = 2 * iy
@@ -233,8 +161,16 @@ polygonize = ->
            line_i += 1
            if line_i == nbline_max
                extend_lineBuffer()
+       else if (ix != myw - 1 and iy != myw - 1 and this_pix and not pix_r and not pix_lr) or (ix == myw - 1 and this_pix)
+           mx0[line_i] = 2 * ix + 2
+           mx1[line_i] = 2 * ix + 2
+           my0[line_i] = 2 * iy + 1
+           my1[line_i] = 2 * iy + 2
+           line_i += 1
+           if line_i == nbline_max
+               extend_lineBuffer()
        # up:
-       if (iy != 0 and this_pix and not pix_u and not pix_ul and not pix_ur) or (iy == 0 and this_pix)
+       if (iy != 0 and this_pix and not pix_u) or (iy == 0 and this_pix)
            mx0[line_i] = 2 * ix
            mx1[line_i] = 2 * ix + 2
            my0[line_i] = 2 * iy
@@ -243,7 +179,7 @@ polygonize = ->
            if line_i == nbline_max
                extend_lineBuffer()
        # down:
-       if (iy != myw - 1 and this_pix and not pix_d and not pix_ll and not pix_lr) or (iy == myw - 1 and this_pix)
+       if (iy != myw - 1 and this_pix and not pix_d) or (iy == myw - 1 and this_pix)
            mx0[line_i] = 2 * ix
            mx1[line_i] = 2 * ix + 2
            my0[line_i] = 2 * iy + 2
@@ -333,11 +269,12 @@ polygonize = ->
         polygon[i] = turf.polygon([polygon[i]])
     console.log 'polygon.length = ', polygon.length
     watershed = polygon[0]
+    # the watershed can have "holes", so remove them
     for i in [0..polygon.length - 1]
         for j in [0..polygon.length - 1]
-            if polygon[i] != 0 and polygon[j] != 0
+            if i != j and polygon[i] != 0 and polygon[j] != 0
                 intersect = turf.intersect(polygon[i], polygon[j])
-                if intersect?
+                if intersect? and turf.area(intersect) > 0
                     erase = turf.erase(polygon[i], polygon[j])
                     if erase?
                         polygon[i] = erase
@@ -349,6 +286,15 @@ polygonize = ->
                             polygon[i] = 0
                             polygon[j] = erase
                             watershed = erase
+    # at this stage if there are still several polygons, just merge them (delineation artifact)
+    first_pol = true
+    for i in [0..polygon.length - 1]
+        if polygon[i] != 0
+            if first_pol
+                watershed = polygon[i]
+                first_pol = false
+            else
+                watershed = turf.union(watershed, polygon[i])
     return
 
 extend_lineBuffer = ->

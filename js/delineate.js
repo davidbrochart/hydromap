@@ -151,7 +151,7 @@
   };
 
   polygonize = function() {
-    var all_pol_done, done, erase, found, found0, going, i, i0, intersect, ix, iy, j, k, l, last_polygon, line_i, m, n, pix_d, pix_j, pix_l, pix_ll, pix_lr, pix_r, pix_u, pix_ul, pix_ur, pol_done, polygon, ref, ref1, ref2, ref3, search_done, size, this_pix, this_x, this_y;
+    var all_pol_done, done, erase, first_pol, found, found0, going, i, i0, intersect, ix, iy, j, k, l, last_polygon, line_i, m, n, o, pix_d, pix_j, pix_l, pix_ll, pix_lr, pix_r, pix_u, pix_ul, pix_ur, pol_done, polygon, ref, ref1, ref2, ref3, ref4, search_done, size, this_pix, this_x, this_y;
     console.log('polygonize');
     line_i = 0;
     pix_j = 0;
@@ -215,95 +215,7 @@
           pix_lr = true;
         }
       }
-      if (ix !== myw - 1 && iy !== myw - 1) {
-        if (this_pix && !pix_r && pix_lr && !pix_ur) {
-          mx0[line_i] = 2 * ix + 2;
-          mx1[line_i] = 2 * ix + 2 + 1;
-          my0[line_i] = 2 * iy;
-          my1[line_i] = 2 * iy + 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-        if (this_pix && !pix_d && pix_lr && !pix_ll) {
-          mx0[line_i] = 2 * ix;
-          mx1[line_i] = 2 * ix + 1;
-          my0[line_i] = 2 * iy + 2;
-          my1[line_i] = 2 * iy + 2 + 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-      }
-      if (ix !== 0 && iy !== myw - 1) {
-        if (this_pix && !pix_l && pix_ll && !pix_ul) {
-          mx0[line_i] = 2 * ix;
-          mx1[line_i] = 2 * ix - 1;
-          my0[line_i] = 2 * iy;
-          my1[line_i] = 2 * iy + 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-        if (this_pix && !pix_d && pix_ll && !pix_lr) {
-          mx0[line_i] = 2 * ix + 2;
-          mx1[line_i] = 2 * ix + 1;
-          my0[line_i] = 2 * iy + 2;
-          my1[line_i] = 2 * iy + 2 + 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-      }
-      if (ix !== 0 && iy !== 0) {
-        if (this_pix && !pix_l && pix_ul && !pix_ll) {
-          mx0[line_i] = 2 * ix;
-          mx1[line_i] = 2 * ix - 1;
-          my0[line_i] = 2 * iy + 2;
-          my1[line_i] = 2 * iy + 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-        if (this_pix && !pix_u && pix_ul && !pix_ur) {
-          mx0[line_i] = 2 * ix + 2;
-          mx1[line_i] = 2 * ix + 1;
-          my0[line_i] = 2 * iy;
-          my1[line_i] = 2 * iy - 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-      }
-      if (ix !== myw - 1 && iy !== 0) {
-        if (this_pix && !pix_u && pix_ur && !pix_ul) {
-          mx0[line_i] = 2 * ix;
-          mx1[line_i] = 2 * ix + 1;
-          my0[line_i] = 2 * iy;
-          my1[line_i] = 2 * iy - 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-        if (this_pix && !pix_r && pix_ur && !pix_lr) {
-          mx0[line_i] = 2 * ix + 2;
-          mx1[line_i] = 2 * ix + 2 + 1;
-          my0[line_i] = 2 * iy + 2;
-          my1[line_i] = 2 * iy + 1;
-          line_i += 1;
-          if (line_i === nbline_max) {
-            extend_lineBuffer();
-          }
-        }
-      }
-      if ((ix !== 0 && this_pix && !pix_l && !pix_ul && !pix_ll) || (ix === 0 && this_pix)) {
+      if ((ix !== 0 && this_pix && !pix_l) || (ix === 0 && this_pix)) {
         mx0[line_i] = 2 * ix;
         mx1[line_i] = 2 * ix;
         my0[line_i] = 2 * iy;
@@ -313,7 +225,7 @@
           extend_lineBuffer();
         }
       }
-      if ((ix !== myw - 1 && this_pix && !pix_r && !pix_ur && !pix_lr) || (ix === myw - 1 && this_pix)) {
+      if ((ix !== myw - 1 && this_pix && !pix_r) || (ix === myw - 1 && this_pix)) {
         mx0[line_i] = 2 * ix + 2;
         mx1[line_i] = 2 * ix + 2;
         my0[line_i] = 2 * iy;
@@ -322,8 +234,17 @@
         if (line_i === nbline_max) {
           extend_lineBuffer();
         }
+      } else if ((ix !== myw - 1 && iy !== myw - 1 && this_pix && !pix_r && !pix_lr) || (ix === myw - 1 && this_pix)) {
+        mx0[line_i] = 2 * ix + 2;
+        mx1[line_i] = 2 * ix + 2;
+        my0[line_i] = 2 * iy + 1;
+        my1[line_i] = 2 * iy + 2;
+        line_i += 1;
+        if (line_i === nbline_max) {
+          extend_lineBuffer();
+        }
       }
-      if ((iy !== 0 && this_pix && !pix_u && !pix_ul && !pix_ur) || (iy === 0 && this_pix)) {
+      if ((iy !== 0 && this_pix && !pix_u) || (iy === 0 && this_pix)) {
         mx0[line_i] = 2 * ix;
         mx1[line_i] = 2 * ix + 2;
         my0[line_i] = 2 * iy;
@@ -333,7 +254,7 @@
           extend_lineBuffer();
         }
       }
-      if ((iy !== myw - 1 && this_pix && !pix_d && !pix_ll && !pix_lr) || (iy === myw - 1 && this_pix)) {
+      if ((iy !== myw - 1 && this_pix && !pix_d) || (iy === myw - 1 && this_pix)) {
         mx0[line_i] = 2 * ix;
         mx1[line_i] = 2 * ix + 2;
         my0[line_i] = 2 * iy + 2;
@@ -444,9 +365,9 @@
     watershed = polygon[0];
     for (i = m = 0, ref2 = polygon.length - 1; 0 <= ref2 ? m <= ref2 : m >= ref2; i = 0 <= ref2 ? ++m : --m) {
       for (j = n = 0, ref3 = polygon.length - 1; 0 <= ref3 ? n <= ref3 : n >= ref3; j = 0 <= ref3 ? ++n : --n) {
-        if (polygon[i] !== 0 && polygon[j] !== 0) {
+        if (i !== j && polygon[i] !== 0 && polygon[j] !== 0) {
           intersect = turf.intersect(polygon[i], polygon[j]);
-          if (intersect != null) {
+          if ((intersect != null) && turf.area(intersect) > 0) {
             erase = turf.erase(polygon[i], polygon[j]);
             if (erase != null) {
               polygon[i] = erase;
@@ -461,6 +382,17 @@
               }
             }
           }
+        }
+      }
+    }
+    first_pol = true;
+    for (i = o = 0, ref4 = polygon.length - 1; 0 <= ref4 ? o <= ref4 : o >= ref4; i = 0 <= ref4 ? ++o : --o) {
+      if (polygon[i] !== 0) {
+        if (first_pol) {
+          watershed = polygon[i];
+          first_pol = false;
+        } else {
+          watershed = turf.union(watershed, polygon[i]);
         }
       }
     }

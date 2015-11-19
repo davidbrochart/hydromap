@@ -650,6 +650,7 @@
             map.removeLayer(watershedLayer);
           }
           watershed.properties['order'] = orders[sample_i].toString();
+          watershed.properties['outlet'] = samples[sample_i].toString();
           watersheds.push(watershed);
           sample_i += 1;
           if (sample_i < samples.length) {

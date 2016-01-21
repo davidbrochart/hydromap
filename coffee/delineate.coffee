@@ -187,29 +187,29 @@ polygonize = ->
            line_i += 1
            if line_i == nbline_max
                extend_lineBuffer()
-        if pix_j == pix_i
-            done = true
-        else
-            if going == 1
-                ix += 1
-                if ix - i0 == size
-                    going = 2
-            else if going == 2
-                iy += 1
-                if iy - i0 == size
-                    going = 3
-            else if going == 3
-                if ix == 0
-                    done = true
-                else
-                    ix -= 1
-                    if i0 - ix == size
-                        going = 4
-            else if going == 4
-                iy -= 1
-                if i0 - iy == size
-                    going = 1
-                    size += 1
+       if pix_j == pix_i
+           done = true
+       else
+           if going == 1
+               ix += 1
+               if ix - i0 == size
+                   going = 2
+           else if going == 2
+               iy += 1
+               if iy - i0 == size
+                   going = 3
+           else if going == 3
+               if ix == 0
+                   done = true
+               else
+                   ix -= 1
+                   if i0 - ix == size
+                       going = 4
+           else if going == 4
+               iy -= 1
+               if i0 - iy == size
+                   going = 1
+                   size += 1
     all_pol_done = false
     polygon = []
     while not all_pol_done
@@ -519,18 +519,18 @@ do_delineate = (p) ->
                         alert('Watershed GeoJSON downloaded')
                     )
             else if state == 'watershed'
-                    watershedLayer = L.mapbox.featureLayer(watershed).addTo(map)
-                    outletLayer = L.mapbox.featureLayer(this_outlet).addTo(map)
-                    outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(watershed) / 1e6, 1).toString() + ' km²').addTo(map)
-                    watershedLayer.on('mouseover', (e) -> outletLayer.openPopup())
-                    watershedLayer.on('click', (e) ->
-                        url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry))
-                        link = document.createElement('a')
-                        link.href = url
-                        link.download = 'watershed.json'
-                        link.click()
-                        alert('Watershed GeoJSON downloaded')
-                    )
+                watershedLayer = L.mapbox.featureLayer(watershed).addTo(map)
+                outletLayer = L.mapbox.featureLayer(this_outlet).addTo(map)
+                outletLayer.bindPopup('<strong>Area</strong> = ' + round(turf.area(watershed) / 1e6, 1).toString() + ' km²').addTo(map)
+                watershedLayer.on('mouseover', (e) -> outletLayer.openPopup())
+                watershedLayer.on('click', (e) ->
+                    url = 'data:text/json;charset=utf8,' + encodeURIComponent(JSON.stringify(watershed.geometry))
+                    link = document.createElement('a')
+                    link.href = url
+                    link.download = 'watershed.json'
+                    link.click()
+                    alert('Watershed GeoJSON downloaded')
+                )
             if state == 'getSubBas'
                 # we need to reverse the samples (incremental delineation must go downstream)
                 samples_rev = []

@@ -1,0 +1,15 @@
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - ipyleaflet
+  - numba
+  - requests
+  - numpy
+  - rasterio
+  - tqdm
+  - affine
+  - scipy
+  - Pillow
+  - matplotlib
+  - ipywidgets

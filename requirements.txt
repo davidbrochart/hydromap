@@ -1,0 +1,11 @@
+ipyleaflet==0.8.1
+numba==0.38.0
+requests==2.18.4
+numpy==1.14.3
+rasterio==0.36.0
+tqdm==4.23.4
+affine==2.2.0
+scipy==1.1.0
+PIL==1.1.6
+matplotlib==2.2.2
+ipywidgets==7.2.1

@@ -12,6 +12,7 @@ def download(url):
     filename = os.path.basename(url)
     name = filename[:filename.find('_grid')]
     adffile = 'tmp/' + name + '/' + name + '/w001001.adf'
+    os.makedirs('tmp', exist_ok=True)
     if not os.path.exists(adffile):
         downloaded = False
         while not downloaded:

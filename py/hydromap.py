@@ -1,5 +1,4 @@
 import pickle
-import requests
 import os
 from tqdm import tqdm
 import rasterio

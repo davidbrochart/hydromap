@@ -15,6 +15,8 @@ from ipywidgets import ToggleButtons
 from IPython.display import display
 from delineate import delineate, download
 
+accDelta = np.inf
+
 def process_acc(path):
     dataset = rasterio.open(path)
     acc_orig = dataset.read()[0]
@@ -120,18 +122,26 @@ def show_flow(coord, m):
     display(slider)
 
 def get_choice(x):
-    global m, s, p, c
+    global m, s, p, c, accDelta
     s.close()
     m.remove_layer(p)
     choice = x['new']
     if choice == 'Show flow':
         show_flow(c, m)
     elif choice == 'Delineate watershed':
-        ws = delineate(*c)
-        mask = ws['mask'][0].astype('float32')
+        ws = delineate(*c, accDelta=accDelta)
+        mask = np.zeros(ws['bbox'][2:], dtype='float32')
+        for mask_idx in range(len(ws['mask'])):
+            y0 = int(round((ws['bbox'][0] - ws['latlon'][mask_idx][0]) * 240))
+            y1 = int(round(y0 + ws['mask'][mask_idx].shape[0]))
+            x0 = int(round((ws['latlon'][mask_idx][1] - ws['bbox'][1]) * 240))
+            x1 = int(round(x0 + ws['mask'][mask_idx].shape[1]))
+            mask[y0:y1, x0:x1] = mask[y0:y1, x0:x1] + ws['mask'][mask_idx].astype('float32') * (1 - np.random.rand())
         mask[mask==0] = np.nan
-        bounds = [ws['latlon'][0][1], ws['latlon'][0][0]-mask.shape[0]/240, ws['latlon'][0][1]+mask.shape[1]/240, ws['latlon'][0][0]]
-        affine = [1/240, 0, ws['latlon'][0][1], 0, -1/240, ws['latlon'][0][0], 0, 0, 1]
+        bounds = [ws['bbox'][1], ws['bbox'][0]-ws['bbox'][2]/240, ws['bbox'][1]+ws['bbox'][3]/240, ws['bbox'][0]]
+        #bounds = [ws['latlon'][0][1], ws['latlon'][0][0]-mask.shape[0]/240, ws['latlon'][0][1]+mask.shape[1]/240, ws['latlon'][0][0]]
+        affine = [1/240, 0, ws['bbox'][1], 0, -1/240, ws['bbox'][0], 0, 0, 1]
+        #affine = [1/240, 0, ws['latlon'][0][1], 0, -1/240, ws['latlon'][0][0], 0, 0, 1]
         ws_web = to_webmercator(mask, affine, bounds)
         imgurl = get_img(ws_web)
         bounds2 = [(bounds[1], bounds[0]), (bounds[3], bounds[2])]

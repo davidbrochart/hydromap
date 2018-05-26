@@ -76,11 +76,23 @@ def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf):
     print('Delineating sub-bassins...')
     mask, latlon = [], []
     getSubBass = False
+    lat_min = np.inf
+    lat_max = -np.inf
+    lon_min = np.inf
+    lon_max = -np.inf
     for sample_i in tqdm(range(sample_size)):
         _, _, _, _, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors = do_delineate(lat, lon, lat0, lon0, dir_tile, acc_tile, getSubBass, sample_i, samples, labels, lengths, pix_deg, accDelta, sub_latlon, mm, mm_back, mx0_deg, my0_deg, dirNeighbors, accNeighbors)
         mask.append(ws_mask)
         latlon.append(ws_latlon)
+        lat_min = min(lat_min, ws_latlon[0] - ws_mask.shape[0] / 240)
+        lat_max = max(lat_max, ws_latlon[0])
+        lon_min = min(lon_min, ws_latlon[1])
+        lon_max = max(lon_max, ws_latlon[1] + ws_mask.shape[1] / 240)
     ws = {}
+    if (lat_min == lat_max) and (lon_min == lon_max):
+        ws['bbox'] = [lat_max, lon_min, mask[0].shape[0], mask[0].shape[1]]
+    else:
+        ws['bbox'] = [lat_max, lon_min, int(round((lat_max - lat_min) * 240)), int(round((lon_max - lon_min) * 240))]
     ws['outlet'] = samples[sample_size - 1::-1]
     ws['length'] = lengths[:sample_size]
     ws['mask'] = mask[::-1]

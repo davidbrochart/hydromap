@@ -6,21 +6,22 @@ from numba import jit
 import requests
 import numpy as np
 import rasterio
-from tqdm import tqdm
 
-def download(url):
+def download(url, label=None):
     filename = os.path.basename(url)
     name = filename[:filename.find('_grid')]
     adffile = 'tmp/' + name + '/' + name + '/w001001.adf'
     os.makedirs('tmp', exist_ok=True)
     if not os.path.exists(adffile):
+        if label is not None:
+            label.value = f'Please wait, downloading {url}'
         downloaded = False
         while not downloaded:
             try:
                 r = requests.get(url, stream=True)
                 with open('tmp/' + filename, 'wb') as f:
                     total_length = int(r.headers.get('content-length'))
-                    for chunk in tqdm(r.iter_content(chunk_size=1024), total=(total_length/1024) + 1):
+                    for chunk in r.iter_content(chunk_size=1024):
                         if chunk:
                             f.write(chunk)
                             f.flush()
@@ -66,21 +67,21 @@ def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf):
         sample_size = 1
         samples[0] = [lat, lon]
     else:
-        print('Getting bassin partition...')
+        #print('Getting bassin partition...')
         tiles = getTile(lat, lon, ['dir', 'acc'])
         dir_tile = tiles['dir']
         acc_tile = tiles['acc']
         samples, labels, lengths, sample_size, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors = do_delineate(lat, lon, lat0, lon0, dir_tile, acc_tile, getSubBass, sample_i, samples, labels, lengths, pix_deg, accDelta, sub_latlon, mm, mm_back, mx0_deg, my0_deg, dirNeighbors, accNeighbors)
         if not is_empty_latlon(sub_latlon):
             print("WARNING: not all subbasins have been processed. This means that they don't fall into different pixels, or that they are not located in the basin. Please check their lat/lon coordinates.")
-    print('Delineating sub-bassins...')
+    #print('Delineating sub-bassins...')
     mask, latlon = [], []
     getSubBass = False
     lat_min = np.inf
     lat_max = -np.inf
     lon_min = np.inf
     lon_max = -np.inf
-    for sample_i in tqdm(range(sample_size)):
+    for sample_i in range(sample_size):
         _, _, _, _, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors = do_delineate(lat, lon, lat0, lon0, dir_tile, acc_tile, getSubBass, sample_i, samples, labels, lengths, pix_deg, accDelta, sub_latlon, mm, mm_back, mx0_deg, my0_deg, dirNeighbors, accNeighbors)
         mask.append(ws_mask)
         latlon.append(ws_latlon)
@@ -273,10 +274,12 @@ def do_delineate(lat, lon, lat0, lon0, dir_tile, acc_tile, getSubBass, sample_i,
 
 @jit(nopython=True)
 def getXY(lat, lon, lat0, lon0, pix_deg):
-    lat = round(lat, 5)
-    lon = round(lon, 5)
-    x = int(np.floor((lon - lon0) / pix_deg))
-    y = int(np.floor((lat0 - lat) / pix_deg))
+    #lat = round(lat, 5)
+    #lon = round(lon, 5)
+    #x = int(np.floor((lon - lon0) / pix_deg))
+    #y = int(np.floor((lat0 - lat) / pix_deg))
+    x = int((lon - lon0) / pix_deg)
+    y = int((lat0 - lat) / pix_deg)
     x_deg = lon0 + x * pix_deg
     y_deg = lat0 - y * pix_deg
     return x, y, x_deg, y_deg

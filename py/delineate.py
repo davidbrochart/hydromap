@@ -10,29 +10,19 @@ import rasterio
 def download(url, label=None):
     filename = os.path.basename(url)
     name = filename[:filename.find('_grid')]
-    adffile = 'tmp/' + name + '/' + name + '/w001001.adf'
+    adffile = f'tmp/{name}/{name}/w001001.adf'
     os.makedirs('tmp', exist_ok=True)
     if not os.path.exists(adffile):
         if label is not None:
             label.value = f'Please wait, downloading {url}'
-        downloaded = False
-        while not downloaded:
-            try:
-                r = requests.get(url, stream=True)
-                with open('tmp/' + filename, 'wb') as f:
-                    total_length = int(r.headers.get('content-length'))
-                    for chunk in r.iter_content(chunk_size=1024):
-                        if chunk:
-                            f.write(chunk)
-                            f.flush()
-                downloaded = True
-            except:
-                pass
-        zip = ZipFile('tmp/' + filename)
+            r = requests.get(url)
+            with open('tmp/' + filename, 'wb') as f:
+                f.write(r.content)
+        zip = ZipFile(f'tmp/{filename}')
         zip.extractall('tmp/')
     return adffile
 
-def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf):
+def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf, dir_url=''):
     getSubBass = True
     sample_i = 0
     samples = np.empty((1024, 2), dtype=np.float32)
@@ -59,16 +49,18 @@ def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf):
     else:
         sub_latlon = np.empty((len(_sub_latlon), 2), dtype=np.float32)
         sub_latlon[:, :] = _sub_latlon
-    _, _, _, _, lat0, lon0, pix_deg = getTileInfo(lat, lon)
+    _, _, _, _, bounds, pix_deg = getTileInfo(lat, lon, dir_url=dir_url)
+    bounds = bounds[0]
+    lat0, lon0 = bounds[1:3]
     if simple_delineation:
-        tiles = getTile(lat, lon, ['dir'])
+        tiles = getTile(lat, lon, ['dir'], dir_url=dir_url)
         dir_tile = tiles['dir']
         acc_tile = dir_tile
         sample_size = 1
         samples[0] = [lat, lon]
     else:
         #print('Getting bassin partition...')
-        tiles = getTile(lat, lon, ['dir', 'acc'])
+        tiles = getTile(lat, lon, ['dir', 'acc'], dir_url=dir_url)
         dir_tile = tiles['dir']
         acc_tile = tiles['acc']
         samples, labels, lengths, sample_size, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors = do_delineate(lat, lon, lat0, lon0, dir_tile, acc_tile, getSubBass, sample_i, samples, labels, lengths, pix_deg, accDelta, sub_latlon, mm, mm_back, mx0_deg, my0_deg, dirNeighbors, accNeighbors)
@@ -284,58 +276,34 @@ def getXY(lat, lon, lat0, lon0, pix_deg):
     y_deg = lat0 - y * pix_deg
     return x, y, x_deg, y_deg
 
-def getTileInfo(lat, lon):
+def getTileInfo(lat, lon, dir_url=''):
     pix_deg = 1 / 240 #0.004166666666667
-    dir_url = None
-    b = [5, 39, -119, -60]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/ca_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 14160, 8160
-    b = [-56, 15, -93, -32]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/sa_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 14640, 17040
-    b = [24, 61, -138, -52]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/na_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 20640, 8880
-    b = [-35, 38, -19, 55]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/af_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 17760, 17520
-    b = [12, 62, -14, 70]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/eu_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 20160, 12000
-    b = [-56, -10, 112, 180]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/au_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 16320, 11040
-    b = [-12, 61, 57, 180]
-    if (dir_url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        lat0, lon0 = b[1], b[2]
-        dir_url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/as_dir_15s_grid.zip'
-        acc_url = dir_url.replace('dir', 'acc')
-        tile_width, tile_height = 29520, 17520
-    if dir_url is None:
-        print('Position not covered.')
-        sys.exit()
-    return tile_width, tile_height, dir_url, acc_url, lat0, lon0, pix_deg
+    dir_url, tile_width, tile_height, bounds = [], [], [], []
+    dir_urls = {
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/na_dir_15s_grid.zip': ((24, 61, -138, -52), 20640, 8880),
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/sa_dir_15s_grid.zip': ((-56, 15, -93, -32), 14640, 17040),
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/ca_dir_15s_grid.zip': ((5, 39, -119, -60), 14160, 8160),
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/af_dir_15s_grid.zip': ((-35, 38, -19, 55), 17760, 17520),
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/eu_dir_15s_grid.zip': ((12, 62, -14, 70), 20160, 12000),
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/au_dir_15s_grid.zip': ((-56, -10, 112, 180), 16320, 11040),
+            'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/as_dir_15s_grid.zip': ((-12, 61, 57, 180), 29520, 17520)
+            }
+    for d in dir_urls:
+        b, w, h = dir_urls[d]
+        if d == dir_url:
+            return [w], [h], [d], [d.replace('dir', 'acc')], [b], pix_deg
+        if (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
+            dir_url.append(d)
+            tile_width.append(w)
+            tile_height.append(h)
+            bounds.append(b)
+    acc_url = [url.replace('dir', 'acc') for url in dir_url]
+    return tile_width, tile_height, dir_url, acc_url, bounds, pix_deg
 
-def getTile(lat, lon, types):
-    _, _, dir_url, acc_url, lat0, lon0, pix_deg = getTileInfo(lat, lon)
+def getTile(lat, lon, types, dir_url=''):
+    _, _, dir_url, acc_url, bounds, pix_deg = getTileInfo(lat, lon, dir_url=dir_url)
+    dir_url, acc_url, bounds = dir_url[0], acc_url[0], bounds[0]
+    lat0, lon0 = bounds[1:3]
     x, y, x_deg, y_deg = getXY(lat, lon, lat0, lon0, pix_deg)
 
     url = {'dir': dir_url, 'acc': acc_url}

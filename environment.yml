@@ -13,3 +13,4 @@ dependencies:
   - Pillow
   - matplotlib
   - ipywidgets
+  - xarray

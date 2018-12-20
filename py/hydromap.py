@@ -1,6 +1,7 @@
 import pickle
 import os
 from tqdm import tqdm
+import xarray as xr
 import rasterio
 import rasterio.features
 from affine import Affine
@@ -15,7 +16,7 @@ from io import StringIO, BytesIO
 from ipyleaflet import Map, Popup, ImageOverlay, Polygon
 from ipywidgets import ToggleButtons
 from IPython.display import display
-from delineate import delineate, download
+from delineate import delineate, download, getTileInfo
 
 accDelta = np.inf
 
@@ -44,7 +45,9 @@ def get_img(a_web):
         a_norm = a_web
     else:
         a_norm = a_web - np.nanmin(a_web)
-        a_norm = a_norm / np.nanmax(a_norm)
+        vmax = np.nanmax(a_norm)
+        if vmax != 0:
+            a_norm = a_norm / vmax
         a_norm = np.where(np.isfinite(a_web), a_norm, 0)
     a_im = PIL.Image.fromarray(np.uint8(plt.cm.viridis(a_norm)*255))
     a_mask = np.where(np.isfinite(a_web), 255, 0)
@@ -58,89 +61,54 @@ def get_img(a_web):
     imgurl = 'data:image/png;base64,' + data
     return imgurl
 
-def show_acc(label, coord, m, current_url, current_acc, current_io, width):
+def show_acc(label, coord, m, current_io, width):
+    width2 = width / 2.
     lat, lon = coord
-    url = None
-    b = [5, 39, -119, -60]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/ca_acc_15s_grid.zip'
-        bounds = b
-    b = [-56, 15, -93, -32]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/sa_acc_15s_grid.zip'
-        bounds = b
-    b = [24, 61, -138, -52]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/na_acc_15s_grid.zip'
-        bounds = b
-    b = [-35, 38, -19, 55]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/af_acc_15s_grid.zip'
-        bounds = b
-    b = [12, 62, -14, 70]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/eu_acc_15s_grid.zip'
-        bounds = b
-    b = [-56, -10, 112, 180]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/au_acc_15s_grid.zip'
-        bounds = b
-    b = [-12, 61, 57, 180]
-    if (url is None) and (b[0] <= lat <= b[1]) and (b[2] <= lon <= b[3]):
-        url = 'http://earlywarning.usgs.gov/hydrodata/sa_15s_zip_grid/as_acc_15s_grid.zip'
-        bounds = b
-    if url is None:
-        return current_url, current_acc, current_io, 0
-    if url == current_url:
-        acc = current_acc
-    else:
-        adffile = download(url, label)
-        dataset = rasterio.open(adffile)
-        acc = dataset.read()[0]
+    _, _, _, acc_urls, _, _ = getTileInfo(lat, lon)
+    dir_url = None
+    acc_v = np.nan
+    if not acc_urls:
+        # mouse position is not on a tile
+        return dir_url, current_io, np.nan
 
-    y0 = int((bounds[1] - lat) * 240) - width
-    y1 = y0 + 2 * width + 1
-    x0 = int((lon - bounds[2]) * 240) - width
-    x1 = x0 + 2 * width + 1
-    lon0 = bounds[2] + x0 / 240
-    lat0 = bounds[1] - y0 / 240
-    acc_orig = np.array(acc[y0:y1, x0:x1])
+    # in case there are several tiles for the mouse position,
+    # merge them
+    for i, acc_url in enumerate(acc_urls):
+        adffile = download(acc_url, label)
+        da = xr.open_rasterio(adffile)
+        da = da.loc[1, lat+width2:lat-width2, lon-width2:lon+width2]
+        da = xr.where(da<0, np.nan, da)
+        if i == 0:
+            acc = da
+        else:
+            acc = acc.combine_first(acc)
+        # when we delineate, we will need only one direction tile.
+        # keep the one where the flow accumulation is valid.
+        v = da.sel(y=lat, x=lon, method='nearest').values
+        if v >= 0:
+            dir_url = acc_url.replace('acc', 'dir')
+            acc_v = int(v)
 
-    acc_width = np.sqrt(np.clip(acc_orig, 0, np.inf))
-    if False:
-        mask = np.ones((2*width+1, 2*width+1)) #.astype('uint8')
-        mask[:, :] = np.nan
-        y, x = np.ogrid[-width:width+1,-width:width+1]
-        index = x**2 + y**2 <= width**2
-        mask[index] = 1
-        acc_width *= mask
-
-        radius = 5 # you can play with this number to change the radius of the rivers
-        circle = np.zeros((2*radius+1, 2*radius+1)).astype('uint8')
-        y, x = np.ogrid[-radius:radius+1,-radius:radius+1]
-        index = x**2 + y**2 <= radius**2
-        circle[index] = 1
-        acc_width = scipy.ndimage.maximum_filter(acc_width, footprint=circle)
-    acc_width[acc_orig<0] = np.nan
-
-    bounds2 = [lon0, lat0 - (2 * width + 1) / 240, lon0 + (2 * width + 1) / 240, lat0]
-    affine = Affine(1/240, 0.0, lon0, 0.0, -1/240, lat0)
-    acc_web = acc_width #to_webmercator(acc_width, affine, bounds2)
-    imgurl = get_img(acc_web)
-    io = ImageOverlay(url=imgurl, bounds=[(bounds2[1], bounds2[0]), (bounds2[3], bounds2[2])], opacity=0.5)
+    imgurl = get_img(np.sqrt(acc.values))
+    bounds = [
+        (acc.y[-1].values -0.5 / 240,
+        acc.x[0].values - 0.5 / 240),
+        (acc.y[0].values + 0.5 / 240,
+        acc.x[-1].values + 0.5 / 240)
+        ]
+    io = ImageOverlay(url=imgurl, bounds=bounds, opacity=0.5)
     if current_io is not None:
         m.remove_layer(current_io)
     m.add_layer(io)
-    return url, acc, io, acc[y0+width, x0+width]
+    return dir_url, io, acc_v
 
 class Flow(object):
     def __init__(self, m, label):
         self.m = m
         self.label = label
-        self.width = 10
+        self.width = 0.1
         self.coord = None
-        self.url = None
-        self.acc = None
+        self.dir_url = None
         self.io = None
         self.accDelta = np.inf
         self.s = None
@@ -148,6 +116,19 @@ class Flow(object):
         self.show_flow = False
         self.show_menu = False
     def show(self, **kwargs):
+        if not self.show_menu:
+            if kwargs.get('type') == 'mousemove':
+                self.coord = kwargs.get('coordinates')
+                if self.show_flow:
+                    self.dir_url, self.io, flow = show_acc(self.label, self.coord, self.m, self.io, self.width)
+                    self.label.value = f'lat/lon = {self.coord}, flow = {flow}'
+                else:
+                    self.label.value = f'lat/lon = {self.coord}'
+                    pass
+            elif 'width' in kwargs:
+                self.width = kwargs.get('width')
+                if self.coord and self.show_flow:
+                    self.dir_url, self.io, flow = show_acc(self.label, self.coord, self.m, self.io, self.width)
         if kwargs.get('type') == 'contextmenu':
             self.show_menu = True
             if self.show_flow:
@@ -161,19 +142,6 @@ class Flow(object):
             self.s.observe(self.get_choice, names='value')
             self.p = Popup(location=self.coord, child=self.s, max_width=160, close_button=False, auto_close=True, close_on_escape_key=False)
             self.m.add_layer(self.p)
-        elif not self.show_menu:
-            if kwargs.get('type') == 'mousemove':
-                self.coord = kwargs.get('coordinates')
-                if self.show_flow:
-                    self.url, self.acc, self.io, flow = show_acc(self.label, self.coord, self.m, self.url, self.acc, self.io, self.width)
-                    self.label.value = f'lat/lon = {self.coord}, flow = {flow}'
-                else:
-                    self.label.value = f'lat/lon = {self.coord}'
-                    pass
-            elif 'width' in kwargs:
-                self.width = (kwargs.get('width') - 1) // 2
-                if self.coord and self.show_flow:
-                    self.url, self.acc, self.io, flow = show_acc(self.label, self.coord, self.m, self.url, self.acc, self.io, self.width)
     def get_choice(self, x):
         self.show_menu = False
         self.s.close()
@@ -189,7 +157,7 @@ class Flow(object):
         elif choice == 'Delineate watershed':
             self.label.value = 'Delineating watershed, please wait...'
             #lat, lon = [np.floor(i * 240) / 240 + 1 / 240 for i in self.coord]
-            ws = delineate(*self.coord, accDelta=self.accDelta)
+            ws = delineate(*self.coord, accDelta=self.accDelta, dir_url=self.dir_url)
             self.label.value = 'Watershed delineated'
             mask = np.zeros(ws['bbox'][2:], dtype='float32')
             for mask_idx in range(len(ws['mask'])):

@@ -15,14 +15,14 @@ def download(url, label=None):
     if not os.path.exists(adffile):
         if label is not None:
             label.value = f'Please wait, downloading {url}'
-            r = requests.get(url)
-            with open('tmp/' + filename, 'wb') as f:
-                f.write(r.content)
+        r = requests.get(url)
+        with open(f'tmp/{filename}', 'wb') as f:
+            f.write(r.content)
         zip = ZipFile(f'tmp/{filename}')
         zip.extractall('tmp/')
     return adffile
 
-def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf, dir_url=''):
+def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf, dir_url='', label=None):
     getSubBass = True
     sample_i = 0
     samples = np.empty((1024, 2), dtype=np.float32)
@@ -53,14 +53,14 @@ def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf, dir_url=''):
     bounds = bounds[0]
     lat0, lon0 = bounds[1:3]
     if simple_delineation:
-        tiles = getTile(lat, lon, ['dir'], dir_url=dir_url)
+        tiles = getTile(lat, lon, ['dir'], dir_url=dir_url, label=label)
         dir_tile = tiles['dir']
         acc_tile = dir_tile
         sample_size = 1
         samples[0] = [lat, lon]
     else:
         #print('Getting bassin partition...')
-        tiles = getTile(lat, lon, ['dir', 'acc'], dir_url=dir_url)
+        tiles = getTile(lat, lon, ['dir', 'acc'], dir_url=dir_url, label=label)
         dir_tile = tiles['dir']
         acc_tile = tiles['acc']
         samples, labels, lengths, sample_size, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors = do_delineate(lat, lon, lat0, lon0, dir_tile, acc_tile, getSubBass, sample_i, samples, labels, lengths, pix_deg, accDelta, sub_latlon, mm, mm_back, mx0_deg, my0_deg, dirNeighbors, accNeighbors)
@@ -300,7 +300,7 @@ def getTileInfo(lat, lon, dir_url=''):
     acc_url = [url.replace('dir', 'acc') for url in dir_url]
     return tile_width, tile_height, dir_url, acc_url, bounds, pix_deg
 
-def getTile(lat, lon, types, dir_url=''):
+def getTile(lat, lon, types, dir_url='', label=None):
     _, _, dir_url, acc_url, bounds, pix_deg = getTileInfo(lat, lon, dir_url=dir_url)
     dir_url, acc_url, bounds = dir_url[0], acc_url[0], bounds[0]
     lat0, lon0 = bounds[1:3]
@@ -310,7 +310,7 @@ def getTile(lat, lon, types, dir_url=''):
     tiles = {}
     for typ in types:
         this_url = url[typ]
-        adffile = download(this_url)
+        adffile = download(this_url, label)
         with rasterio.open(adffile) as src:
             data = src.read()
         tiles[typ] = data[0].astype({'dir': np.uint8, 'acc': np.uint32}[typ])

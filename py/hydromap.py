@@ -157,7 +157,7 @@ class Flow(object):
         elif choice == 'Delineate watershed':
             self.label.value = 'Delineating watershed, please wait...'
             #lat, lon = [np.floor(i * 240) / 240 + 1 / 240 for i in self.coord]
-            ws = delineate(*self.coord, accDelta=self.accDelta, dir_url=self.dir_url)
+            ws = delineate(*self.coord, accDelta=self.accDelta, dir_url=self.dir_url, label=self.label)
             self.label.value = 'Watershed delineated'
             mask = np.zeros(ws['bbox'][2:], dtype='float32')
             for mask_idx in range(len(ws['mask'])):

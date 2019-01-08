@@ -16,3 +16,5 @@ dependencies:
   - xarray
   - pyproj
   - branca
+  - pydap
+  - dask

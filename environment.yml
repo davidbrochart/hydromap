@@ -19,5 +19,6 @@ dependencies:
   - pydap
   - dask
   - lxml
+  - zarr
   - pip:
     - soupsieve

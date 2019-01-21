@@ -20,6 +20,7 @@ dependencies:
   - dask
   - lxml
   - zarr
+  - intake
   - pip:
     - soupsieve
     - gcsfs

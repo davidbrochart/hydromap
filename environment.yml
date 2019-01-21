@@ -21,6 +21,7 @@ dependencies:
   - lxml
   - zarr
   - intake
+  - intake-xarray
   - pip:
     - soupsieve
     - gcsfs

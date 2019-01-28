@@ -92,7 +92,7 @@ class Flow(object):
         self.p = None
         self.show_flow = False
         self.show_menu = False
-        self.da = xr.open_rasterio('../../flow_acc_3sec/hydrosheds/acc.vrt')
+        self.da = xr.open_rasterio('../data/hydrosheds/acc.vrt')
         os.makedirs('tmp', exist_ok=True)
     def show(self, **kwargs):
         if not self.show_menu:

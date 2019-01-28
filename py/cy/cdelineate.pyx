@@ -337,7 +337,7 @@ def get_tile(lat, lon, nb, pix_deg, tile_deg):
     types = ['dir', 'acc'][:nb]
     tiles = {}
     for t in types:
-        da = xr.open_rasterio(f'data/hydrosheds/{t}.vrt')
+        da = xr.open_rasterio(f'../data/hydrosheds/{t}.vrt')
         da = da.sel(band=1, y=slice(lat+tile_deg/2, lat-tile_deg/2), x=slice(lon-tile_deg/2, lon+tile_deg/2))
         # FIXME
         # there might be problems for tiles in the corners

@@ -2,6 +2,7 @@ import pickle
 import os
 from tqdm import tqdm
 import xarray as xr
+from pydap.cas.urs import setup_session
 import rasterio
 import rasterio.features
 import pyproj
@@ -17,7 +18,7 @@ from io import StringIO, BytesIO
 from ipyleaflet import Map, Popup, ImageOverlay, Polygon
 from ipywidgets import ToggleButtons
 from IPython.display import display
-from delineate import delineate, download, getTileInfo
+from delineate import delineate
 
 def to_webmercator(source, affine, bounds):
     with rasterio.Env():
@@ -60,46 +61,24 @@ def get_img(a_web):
     imgurl = 'data:image/png;base64,' + data
     return imgurl
 
-def show_acc(label, coord, m, current_io, width):
+def show_acc(label, coord, m, current_io, width, da):
     width2 = width / 2.
     lat, lon = coord
-    _, _, _, acc_urls, _, _ = getTileInfo(lat, lon)
-    dir_url = None
-    acc_v = np.nan
-    if not acc_urls:
-        # mouse position is not on a tile
-        return dir_url, current_io, np.nan
-
-    # in case there are several tiles for the mouse position,
-    # merge them
-    for i, acc_url in enumerate(acc_urls):
-        adffile = download(acc_url, label)
-        da = xr.open_rasterio(adffile)
-        da = da.loc[1, lat+width2:lat-width2, lon-width2:lon+width2]
-        da = xr.where(da<0, np.nan, da)
-        if i == 0:
-            acc = da
-        else:
-            acc = acc.combine_first(acc)
-        # when we delineate, we will need only one direction tile.
-        # keep the one where the flow accumulation is valid.
-        v = da.sel(y=lat, x=lon, method='nearest').values
-        if v >= 0:
-            dir_url = acc_url.replace('acc', 'dir')
-            acc_v = int(v)
+    acc = da.loc[1, lat+width2:lat-width2, lon-width2:lon+width2]
+    acc_v = int(acc.sel(y=lat, x=lon, method='nearest').values)
 
     imgurl = get_img(np.sqrt(acc.values))
     bounds = [
-        (acc.y[-1].values -0.5 / 240,
-        acc.x[0].values - 0.5 / 240),
-        (acc.y[0].values + 0.5 / 240,
-        acc.x[-1].values + 0.5 / 240)
+        (acc.y[-1].values - 0.5 / 1200,
+        acc.x[0].values - 0.5 / 1200),
+        (acc.y[0].values + 0.5 / 1200,
+        acc.x[-1].values + 0.5 / 1200)
         ]
     io = ImageOverlay(url=imgurl, bounds=bounds, opacity=0.5)
     if current_io is not None:
         m.remove_layer(current_io)
     m.add_layer(io)
-    return dir_url, io, acc_v
+    return io, acc_v
 
 class Flow(object):
     def __init__(self, m, label):
@@ -107,19 +86,20 @@ class Flow(object):
         self.label = label
         self.width = 0.1
         self.coord = None
-        self.dir_url = None
         self.io = None
         self.accDelta = np.inf
         self.s = None
         self.p = None
         self.show_flow = False
         self.show_menu = False
+        self.da = xr.open_rasterio('../../flow_acc_3sec/hydrosheds/acc.vrt')
+        os.makedirs('tmp', exist_ok=True)
     def show(self, **kwargs):
         if not self.show_menu:
             if kwargs.get('type') == 'mousemove':
                 self.coord = kwargs.get('coordinates')
                 if self.show_flow:
-                    self.dir_url, self.io, flow = show_acc(self.label, self.coord, self.m, self.io, self.width)
+                    self.io, flow = show_acc(self.label, self.coord, self.m, self.io, self.width, self.da)
                     self.label.value = f'lat/lon = {self.coord}, flow = {flow}'
                 else:
                     self.label.value = f'lat/lon = {self.coord}'
@@ -127,7 +107,7 @@ class Flow(object):
             elif 'width' in kwargs:
                 self.width = kwargs.get('width')
                 if self.coord and self.show_flow:
-                    self.dir_url, self.io, flow = show_acc(self.label, self.coord, self.m, self.io, self.width)
+                    self.io, flow = show_acc(self.label, self.coord, self.m, self.io, self.width, self.da)
         if kwargs.get('type') == 'contextmenu':
             self.show_menu = True
             if self.show_flow:
@@ -158,63 +138,52 @@ class Flow(object):
             self.m.remove_layer(self.io)
             self.io = None
             self.label.value = 'Delineating watershed, please wait...'
-            #lat, lon = [np.floor(i * 240) / 240 + 1 / 240 for i in self.coord]
-            ws = delineate(*self.coord, accDelta=self.accDelta, dir_url=self.dir_url, label=self.label)
+            ws = delineate(*self.coord, accDelta=self.accDelta, label=self.label)
             self.label.value = 'Watershed delineated'
-            mask = np.zeros(ws['bbox'][2:], dtype=np.uint8)
-            for mask_idx in range(len(ws['mask'])):
-                y0 = int(round((ws['bbox'][0] - ws['latlon'][mask_idx][0]) * 240))
-                y1 = int(round(y0 + ws['mask'][mask_idx].shape[0]))
-                x0 = int(round((ws['latlon'][mask_idx][1] - ws['bbox'][1]) * 240))
-                x1 = int(round(x0 + ws['mask'][mask_idx].shape[1]))
-                mask[y0:y1, x0:x1] = mask[y0:y1, x0:x1] + ws['mask'][mask_idx]# * (1 - np.random.rand())
-            if False:
-                #np.save('tmp/mask.npy', ws['mask'][0].astype('uint8'))
-                #print('bbox: ' + str(ws['bbox']))
-                mask[mask==0] = np.nan
-                bounds = [ws['bbox'][1], ws['bbox'][0]-ws['bbox'][2]/240, ws['bbox'][1]+ws['bbox'][3]/240, ws['bbox'][0]]
-                #bounds = [ws['latlon'][0][1], ws['latlon'][0][0]-mask.shape[0]/240, ws['latlon'][0][1]+mask.shape[1]/240, ws['latlon'][0][0]]
-                affine = Affine(1/240, 0, ws['bbox'][1], 0, -1/240, ws['bbox'][0])
-                #affine = Affine(1/240, 0, ws['latlon'][0][1], 0, -1/240, ws['latlon'][0][0])
-                ws_web, affine2, shape2 = to_webmercator(mask, affine, bounds)
-                inProj = pyproj.Proj(init='epsg:3857')
-                outProj = pyproj.Proj(init='epsg:4326')
-                x1, y1 = affine2[2], affine2[5]+affine2[4]*shape2[0]
-                x2, y2 = pyproj.transform(inProj, outProj, x1, y1)
-                x3, y3 = affine2[2]+affine2[0]*shape2[1], affine2[5]
-                x4, y4 = pyproj.transform(inProj, outProj, x3, y3)
-                bounds2 = [(y2, x2), (y4, x4)]
-                imgurl = get_img(ws_web)
-                io = ImageOverlay(url=imgurl, bounds=bounds2, opacity=0.5)
-                self.m.add_layer(io)
-            else:
-                x0 = ws['latlon'][0][1]
-                x1 = x0 + mask.shape[1] / 240
-                y0 = ws['latlon'][0][0]
-                y1 = y0 - mask.shape[0] / 240
-                mask2 = np.zeros((mask.shape[0]+2, mask.shape[1]+2), dtype=np.uint8)
-                mask2[1:-1, 1:-1] = mask
-                affine = Affine(1/240, 0, ws['latlon'][0][1]-1/240, 0, -1/240, ws['latlon'][0][0]+1/240)
-                shapes = list(rasterio.features.shapes(mask2, transform=affine))
-                polygons = []
-                polygon = polygons
-                i = 0
-                for shape in shapes:
-                    if len(shape[0]['coordinates'][0]) > 5:
-                        if i == 1:
-                            # more than one polygon
-                            polygons = [polygons]
-                        if i >= 1:
-                            polygons.append([])
-                            polygon = polygons[-1]
-                        for coord in shape[0]['coordinates'][0]:
-                            x, y = coord
-                            polygon.append((y, x))
-                        i += 1
-                polygon = Polygon(locations=polygons, color='green', fill_color='green')
-                self.m.add_layer(polygon)
+            lat = np.array([ws['latlon'][0][0] - (i + 0.5) / 1200 for i in range(ws['mask'][0].shape[0])])
+            lon = np.array([ws['latlon'][0][1] + (i + 0.5) / 1200 for i in range(ws['mask'][0].shape[1])])
+            da = xr.DataArray(ws['mask'][0], coords=[lat, lon], dims=['lat', 'lon'])
+            #url = 'https://gpm1.gesdisc.eosdis.nasa.gov/opendap/hyrax/GPM_L3/GPM_3IMERGHHE.05/2018/001/3B-HHR-E.MS.MRG.3IMERG.20180101-S000000-E002959.0000.V05B.HDF5'
+            #session = setup_session('davidbrochart', 'DavidBrochart0', check_url=url)
+            #store = xr.backends.PydapDataStore.open(url, session=session)
+            #ds = xr.open_dataset(store)
+            #da = ds['precipitationCal']
+
+            #mask = np.zeros(ws['bbox'][2:], dtype=np.float32)
+            #for mask_idx in range(len(ws['mask'])):
+            #    y0 = int(round((ws['bbox'][0] - ws['latlon'][mask_idx][0]) * 1200))
+            #    y1 = int(round(y0 + ws['mask'][mask_idx].shape[0]))
+            #    x0 = int(round((ws['latlon'][mask_idx][1] - ws['bbox'][1]) * 1200))
+            #    x1 = int(round(x0 + ws['mask'][mask_idx].shape[1]))
+            #    mask[y0:y1, x0:x1] = mask[y0:y1, x0:x1] + ws['mask'][mask_idx] * (1 - np.random.randint(256))
+            #ws['mask'][0]
+            mask = ws['mask'][0]
+            x0 = ws['latlon'][0][1]
+            x1 = x0 + mask.shape[1] / 1200
+            y0 = ws['latlon'][0][0]
+            y1 = y0 - mask.shape[0] / 1200
+            mask2 = np.zeros((mask.shape[0]+2, mask.shape[1]+2), dtype=np.uint8)
+            mask2[1:-1, 1:-1] = mask
+            affine = Affine(1/1200, 0, ws['bbox'][1]-1/1200, 0, -1/1200, ws['bbox'][0]+1/1200)
+            shapes = list(rasterio.features.shapes(mask2, transform=affine))
+            polygons = []
+            polygon = polygons
+            i = 0
+            for shape in shapes:
+                if len(shape[0]['coordinates'][0]) > 5:
+                    if i == 1:
+                        # more than one polygon
+                        polygons = [polygons]
+                    if i >= 1:
+                        polygons.append([])
+                        polygon = polygons[-1]
+                    for coord in shape[0]['coordinates'][0]:
+                        x, y = coord
+                        polygon.append((y, x))
+                    i += 1
+            polygon = Polygon(locations=polygons, color='green', fill_color='green')
+            self.m.add_layer(polygon)
             self.label.value = 'Watershed displayed'
-            #slider = io.interact(opacity=(0.0,1.0,0.01))
-            #display(slider)
+            return da
         elif choice == 'Close':
             pass

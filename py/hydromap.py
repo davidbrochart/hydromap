@@ -157,33 +157,37 @@ class Flow(object):
             #    x1 = int(round(x0 + ws['mask'][mask_idx].shape[1]))
             #    mask[y0:y1, x0:x1] = mask[y0:y1, x0:x1] + ws['mask'][mask_idx] * (1 - np.random.randint(256))
             #ws['mask'][0]
-            mask = ws['mask'][0]
-            x0 = ws['latlon'][0][1]
-            x1 = x0 + mask.shape[1] / 1200
-            y0 = ws['latlon'][0][0]
-            y1 = y0 - mask.shape[0] / 1200
-            mask2 = np.zeros((mask.shape[0]+2, mask.shape[1]+2), dtype=np.uint8)
-            mask2[1:-1, 1:-1] = mask
-            affine = Affine(1/1200, 0, ws['bbox'][1]-1/1200, 0, -1/1200, ws['bbox'][0]+1/1200)
-            shapes = list(rasterio.features.shapes(mask2, transform=affine))
-            polygons = []
-            polygon = polygons
-            i = 0
-            for shape in shapes:
-                if len(shape[0]['coordinates'][0]) > 5:
-                    if i == 1:
-                        # more than one polygon
-                        polygons = [polygons]
-                    if i >= 1:
-                        polygons.append([])
-                        polygon = polygons[-1]
-                    for coord in shape[0]['coordinates'][0]:
-                        x, y = coord
-                        polygon.append((y, x))
-                    i += 1
-            polygon = Polygon(locations=polygons, color='green', fill_color='green')
+            polygon = get_polygon(ws, 0)
             self.m.add_layer(polygon)
             self.label.value = 'Watershed displayed'
             return da
         elif choice == 'Close':
             pass
+
+def get_polygon(ws, i):
+    mask = ws['mask'][i]
+    x0 = ws['latlon'][i][1]
+    x1 = x0 + mask.shape[1] / 1200
+    y0 = ws['latlon'][i][0]
+    y1 = y0 - mask.shape[0] / 1200
+    mask2 = np.zeros((mask.shape[0]+2, mask.shape[1]+2), dtype=np.uint8)
+    mask2[1:-1, 1:-1] = mask
+    affine = Affine(1/1200, 0, ws['bbox'][1]-1/1200, 0, -1/1200, ws['bbox'][0]+1/1200)
+    shapes = list(rasterio.features.shapes(mask2, transform=affine))
+    polygons = []
+    polygon = polygons
+    i = 0
+    for shape in shapes:
+        if len(shape[0]['coordinates'][0]) > 5:
+            if i == 1:
+                # more than one polygon
+                polygons = [polygons]
+            if i >= 1:
+                polygons.append([])
+                polygon = polygons[-1]
+            for coord in shape[0]['coordinates'][0]:
+                x, y = coord
+                polygon.append((y, x))
+            i += 1
+    polygon = Polygon(locations=polygons, color='green', fill_color='green')
+    return polygon

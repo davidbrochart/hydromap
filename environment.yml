@@ -24,6 +24,8 @@ dependencies:
   - intake-xarray
   - dask-kubernetes
   - cython
+  - scikit-image
+  - shapely
   - pip:
     - soupsieve
     - gcsfs

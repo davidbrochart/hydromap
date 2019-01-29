@@ -18,7 +18,7 @@ def delineate(lat, lon, _sub_latlon=[], accDelta=np.inf, label=None):
     accNeighbors = np.empty(1024, dtype=np.float64)
     ws_latlon = np.empty(2, dtype=np.float64)
     # output mask ->
-    mxw = 8192 # bytes
+    mxw = 10000 # bytes
     myw = mxw * 8 # bits
     mm = np.empty((myw, mxw), dtype=np.uint8)
     mm_back = np.empty((myw, mxw), dtype=np.uint8)

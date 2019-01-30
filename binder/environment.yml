@@ -2,6 +2,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - ipywidgets
   - ipyleaflet
   - numba
   - requests
@@ -18,10 +19,16 @@ dependencies:
   - branca
   - pydap
   - dask
+  - distributed
+  - bokeh
+  - nbserverproxy
+  - jupyter
+  - jupyterlab=0.35
   - lxml
   - zarr
   - intake
   - intake-xarray
+  - graphviz
   - dask-kubernetes
   - cython
   - scikit-image

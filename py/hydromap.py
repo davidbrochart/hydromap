@@ -15,7 +15,7 @@ import PIL
 import matplotlib.pyplot as plt
 from base64 import b64encode
 from io import StringIO, BytesIO
-from ipyleaflet import Map, Popup, ImageOverlay, Polygon
+from ipyleaflet import Map, Popup, ImageOverlay, Polygon, Marker
 from ipywidgets import ToggleButtons
 from IPython.display import display
 from delineate import delineate
@@ -87,13 +87,12 @@ class Flow(object):
         self.width = 0.1
         self.coord = None
         self.io = None
-        self.accDelta = np.inf
         self.s = None
         self.p = None
         self.show_flow = False
         self.show_menu = False
         self.da = xr.open_rasterio('../data/hydrosheds/acc.vrt')
-        os.makedirs('tmp', exist_ok=True)
+        self.marker = None
     def show(self, **kwargs):
         if not self.show_menu:
             if kwargs.get('type') == 'mousemove':
@@ -115,9 +114,9 @@ class Flow(object):
             else:
                 showHideFlow = 'Show flow'
             if showHideFlow == 'Hide flow':
-                self.s = ToggleButtons(options=[showHideFlow, 'Delineate watershed', 'Close'], value=None)
+                self.s = ToggleButtons(options=[showHideFlow, 'Delineate watershed', 'Set marker', 'Close'], value=None)
             else:
-                self.s = ToggleButtons(options=[showHideFlow, 'Close'], value=None)
+                self.s = ToggleButtons(options=[showHideFlow, 'Set marker', 'Close'], value=None)
             self.s.observe(self.get_choice, names='value')
             self.p = Popup(location=self.coord, child=self.s, max_width=160, close_button=False, auto_close=True, close_on_escape_key=False)
             self.m.add_layer(self.p)
@@ -138,41 +137,28 @@ class Flow(object):
             self.m.remove_layer(self.io)
             self.io = None
             self.label.value = 'Delineating watershed, please wait...'
-            ws = delineate(*self.coord, accDelta=self.accDelta, label=self.label)
+            ds_mask = delineate(*self.coord)
             self.label.value = 'Watershed delineated'
-            lat = np.array([ws['latlon'][0][0] - (i + 0.5) / 1200 for i in range(ws['mask'][0].shape[0])])
-            lon = np.array([ws['latlon'][0][1] + (i + 0.5) / 1200 for i in range(ws['mask'][0].shape[1])])
-            da = xr.DataArray(ws['mask'][0], coords=[lat, lon], dims=['lat', 'lon'])
-            #url = 'https://gpm1.gesdisc.eosdis.nasa.gov/opendap/hyrax/GPM_L3/GPM_3IMERGHHE.05/2018/001/3B-HHR-E.MS.MRG.3IMERG.20180101-S000000-E002959.0000.V05B.HDF5'
-            #session = setup_session('davidbrochart', 'DavidBrochart0', check_url=url)
-            #store = xr.backends.PydapDataStore.open(url, session=session)
-            #ds = xr.open_dataset(store)
-            #da = ds['precipitationCal']
-
-            #mask = np.zeros(ws['bbox'][2:], dtype=np.float32)
-            #for mask_idx in range(len(ws['mask'])):
-            #    y0 = int(round((ws['bbox'][0] - ws['latlon'][mask_idx][0]) * 1200))
-            #    y1 = int(round(y0 + ws['mask'][mask_idx].shape[0]))
-            #    x0 = int(round((ws['latlon'][mask_idx][1] - ws['bbox'][1]) * 1200))
-            #    x1 = int(round(x0 + ws['mask'][mask_idx].shape[1]))
-            #    mask[y0:y1, x0:x1] = mask[y0:y1, x0:x1] + ws['mask'][mask_idx] * (1 - np.random.randint(256))
-            #ws['mask'][0]
-            polygon = get_polygon(ws, 0)
+            mask = ds_mask['0'].values
+            polygon = get_polygon(mask, ds_mask.lat.values[0]+0.5/1200, ds_mask.lon.values[0]-0.5/1200)
             self.m.add_layer(polygon)
             self.label.value = 'Watershed displayed'
-            return da
+        elif choice == 'Set marker':
+            if self.marker is not None:
+                self.m.remove_layer(self.marker)
+            self.marker = Marker(location=self.coord)
+            self.m.add_layer(self.marker)
         elif choice == 'Close':
             pass
 
-def get_polygon(ws, i):
-    mask = ws['mask'][i]
-    x0 = ws['latlon'][i][1]
+def get_polygon(mask, lat, lon):
+    x0 = lon
     x1 = x0 + mask.shape[1] / 1200
-    y0 = ws['latlon'][i][0]
+    y0 = lat
     y1 = y0 - mask.shape[0] / 1200
-    mask2 = np.zeros((mask.shape[0]+2, mask.shape[1]+2), dtype=np.uint8)
+    mask2 = np.zeros((mask.shape[0]+2, mask.shape[1]+2), dtype=np.uint16)
     mask2[1:-1, 1:-1] = mask
-    affine = Affine(1/1200, 0, ws['bbox'][1]-1/1200, 0, -1/1200, ws['bbox'][0]+1/1200)
+    affine = Affine(1/1200, 0, lon-1/1200, 0, -1/1200, lat+1/1200)
     shapes = list(rasterio.features.shapes(mask2, transform=affine))
     polygons = []
     polygon = polygons

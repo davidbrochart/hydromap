@@ -14,30 +14,31 @@ cdef get_length(double lat, double lon, double olat, double olon, double pix_deg
     Computes the length from lat/lon to olat/olon
     '''
     cdef np.ndarray[np.uint8_t, ndim=2] dir_tile
+    cdef np.ndarray[np.float64_t, ndim=2] acc_tile
     cdef double length
     cdef int x, y, done, x_keep, y_keep
     length = 0.
     if (abs(olon - lon) < pix_deg / 4) and (abs(olat - lat) < pix_deg / 4):
         return length
-    dir_tile, _, y, x = get_tile(lat, lon, 1, pix_deg, tile_deg)
+    dir_tile, acc_tile, y, x = get_tile(lat, lon, 2, pix_deg, tile_deg)
     done = 0
     while done == 0:
         x_keep, y_keep = x, y
         _, x, y, _, _, lon, lat = go_get_dir(dir_tile[y, x], dir_tile, x, y, 0, 0, lon, lat, pix_deg)
         if (x == 0) or (x == dir_tile.shape[1] - 1) or (y == 0) or (y == dir_tile.shape[0] - 1):
             # reached the border of the tile, re-center
-            dir_tile, _, y, x = get_tile(lat, lon, 1, pix_deg, tile_deg)
+            dir_tile, acc_tile, y, x = get_tile(lat, lon, 2, pix_deg, tile_deg)
         if x != x_keep and y != y_keep:
-            length += 1.4142135623730951
+            length += np.sqrt(acc_tile[y, x] * 2)
         else:
-            length += 1.
+            length += np.sqrt(acc_tile[y, x])
         if (abs(olon - lon ) < pix_deg / 4) and (abs(olat - lat) < pix_deg / 4):
             done = 1
     return length
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def cdelineate(double lat, double lon, bool getSubBass, int sample_i, np.ndarray[np.float64_t, ndim=2] samples, np.ndarray[np.int32_t, ndim=2] labels, np.ndarray[np.float64_t, ndim=1] lengths, double pix_deg, double tile_deg, double accDelta, np.ndarray[np.float64_t, ndim=2] sub_latlon, np.ndarray[np.uint8_t, ndim=2] mm, np.ndarray[np.uint8_t, ndim=2] mm_back, double mx0_deg, double my0_deg, np.ndarray[np.uint8_t, ndim=1] dirNeighbors, np.ndarray[np.float64_t, ndim=1] accNeighbors):
+def cdelineate(double lat, double lon, bool getSubBass, int sample_i, np.ndarray[np.float64_t, ndim=2] samples, np.ndarray[np.int32_t, ndim=2] labels, np.ndarray[np.float64_t, ndim=1] areas, np.ndarray[np.float64_t, ndim=1] lengths, double pix_deg, double tile_deg, double accDelta, np.ndarray[np.float64_t, ndim=2] sub_latlon, np.ndarray[np.uint8_t, ndim=2] mm, np.ndarray[np.uint8_t, ndim=2] mm_back, double mx0_deg, double my0_deg, np.ndarray[np.uint8_t, ndim=1] dirNeighbors, np.ndarray[np.float64_t, ndim=1] accNeighbors):
     cdef getSubBass_i
     getSubBass_i = int(getSubBass)
     cdef np.ndarray[np.uint8_t, ndim=2] dir_tile
@@ -57,6 +58,7 @@ def cdelineate(double lat, double lon, bool getSubBass, int sample_i, np.ndarray
         dir_tile, acc_tile, y, x = get_tile(lat, lon, 2, pix_deg, tile_deg)
         acc = acc_tile[y,  x]
         samples[0, :] = [lat, lon]
+        areas[0] = acc
         lengths[0] = 0.
         rm_latlon(samples[0][0], samples[0][1], sub_latlon, pix_deg)
         sample_i = 0
@@ -110,9 +112,13 @@ def cdelineate(double lat, double lon, bool getSubBass, int sample_i, np.ndarray
                         lengths_new = np.empty(lengths.shape[0] * 2, dtype=np.float64)
                         lengths_new[:lengths.shape[0]] = lengths
                         lengths = lengths_new
+                        areas_new = np.empty(areas.shape[0] * 2, dtype=np.float64)
+                        areas_new[:areas.shape[0]] = areas
+                        areas = areas_new
                     samples[sample_i, :] = [lat, lon]
                     labels[sample_i, :] = [label_i, labels[label_i, 1] + 1, new_label]
                     lengths[sample_i] = get_length(lat, lon, samples[0, 0], samples[0, 1], pix_deg, tile_deg)
+                    areas[sample_i] = this_acc
                     new_label = 0
                     label_i = sample_i
             else:
@@ -203,7 +209,7 @@ def cdelineate(double lat, double lon, bool getSubBass, int sample_i, np.ndarray
                 sample_size = 0
                 mm[:] &= ~mm_back[:]
                 ws_mask, ws_latlon[0], ws_latlon[1] = get_bbox(mm, pix_deg, mx0_deg, my0_deg)
-    return samples, labels, lengths, sample_size, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors
+    return samples, labels, areas, lengths, sample_size, mx0_deg, my0_deg, ws_mask, ws_latlon, dirNeighbors, accNeighbors
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

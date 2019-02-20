@@ -5,6 +5,7 @@ dependencies:
   - ipywidgets
   - ipyleaflet
   - numba
+  - pandas
   - requests
   - numpy
   - rasterio

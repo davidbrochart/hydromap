@@ -137,9 +137,10 @@ class Flow(object):
             self.m.remove_layer(self.io)
             self.io = None
             self.label.value = 'Delineating watershed, please wait...'
-            ds_mask = delineate(*self.coord)
+            delineate(*self.coord)
             self.label.value = 'Watershed delineated'
-            mask = ds_mask['0'].values
+            ds_mask = xr.open_zarr('tmp/ds_mask/0').compute()
+            mask = ds_mask['mask'].values
             polygon = get_polygon(mask, ds_mask.lat.values[0]+0.5/1200, ds_mask.lon.values[0]-0.5/1200)
             self.m.add_layer(polygon)
             self.label.value = 'Watershed displayed'

@@ -1,3 +1,5 @@
 # Welcome
 
-There is only one Notebook for now: `ipynb/watershed_delineation.ipynb`.
+The following notebooks are available:
+- `ipynb/watershed_delineation.ipynb`: tools for watershed delineation.
+- `ipynb/amazonas_fit.ipynb`: fit hydrologic models to the Amazon basin.
